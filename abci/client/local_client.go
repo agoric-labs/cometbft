@@ -15,6 +15,12 @@ var _ Client = (*localClient)(nil)
 type localClient struct {
 	service.BaseService
 
+	// This mutex originally protected the ABCI machinery from reentering the
+	// Application.  However, overuse of it caused performance problems for
+	// read-only queries which the Application (say, Cosmos SDK) can perfectly
+	// well handle in parallel.  So, where we indicate that the mutex isn't used,
+	// it is because the ABCI message does not result in any mutations of the
+	// KVStore (or other state), and thus can be handled concurrently.
 	mtx *tmsync.Mutex
 	types.Application
 	Callback
@@ -59,9 +65,7 @@ func (app *localClient) EchoAsync(msg string) *ReqRes {
 }
 
 func (app *localClient) InfoAsync(req types.RequestInfo) *ReqRes {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.Info(req)
 	return app.callback(
 		types.ToRequestInfo(req),
@@ -103,9 +107,7 @@ func (app *localClient) CheckTxAsync(req types.RequestCheckTx) *ReqRes {
 }
 
 func (app *localClient) QueryAsync(req types.RequestQuery) *ReqRes {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.Query(req)
 	return app.callback(
 		types.ToRequestQuery(req),
@@ -158,9 +160,7 @@ func (app *localClient) EndBlockAsync(req types.RequestEndBlock) *ReqRes {
 }
 
 func (app *localClient) ListSnapshotsAsync(req types.RequestListSnapshots) *ReqRes {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.ListSnapshots(req)
 	return app.callback(
 		types.ToRequestListSnapshots(req),
@@ -169,9 +169,7 @@ func (app *localClient) ListSnapshotsAsync(req types.RequestListSnapshots) *ReqR
 }
 
 func (app *localClient) OfferSnapshotAsync(req types.RequestOfferSnapshot) *ReqRes {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.OfferSnapshot(req)
 	return app.callback(
 		types.ToRequestOfferSnapshot(req),
@@ -180,9 +178,7 @@ func (app *localClient) OfferSnapshotAsync(req types.RequestOfferSnapshot) *ReqR
 }
 
 func (app *localClient) LoadSnapshotChunkAsync(req types.RequestLoadSnapshotChunk) *ReqRes {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.LoadSnapshotChunk(req)
 	return app.callback(
 		types.ToRequestLoadSnapshotChunk(req),
@@ -212,9 +208,7 @@ func (app *localClient) EchoSync(msg string) (*types.ResponseEcho, error) {
 }
 
 func (app *localClient) InfoSync(req types.RequestInfo) (*types.ResponseInfo, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.Info(req)
 	return &res, nil
 }
@@ -236,17 +230,13 @@ func (app *localClient) DeliverTxSync(req types.RequestDeliverTx) (*types.Respon
 }
 
 func (app *localClient) CheckTxSync(req types.RequestCheckTx) (*types.ResponseCheckTx, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.CheckTx(req)
 	return &res, nil
 }
 
 func (app *localClient) QuerySync(req types.RequestQuery) (*types.ResponseQuery, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.Query(req)
 	return &res, nil
 }
@@ -284,26 +274,20 @@ func (app *localClient) EndBlockSync(req types.RequestEndBlock) (*types.Response
 }
 
 func (app *localClient) ListSnapshotsSync(req types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.ListSnapshots(req)
 	return &res, nil
 }
 
 func (app *localClient) OfferSnapshotSync(req types.RequestOfferSnapshot) (*types.ResponseOfferSnapshot, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.OfferSnapshot(req)
 	return &res, nil
 }
 
 func (app *localClient) LoadSnapshotChunkSync(
 	req types.RequestLoadSnapshotChunk) (*types.ResponseLoadSnapshotChunk, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
+	// Read only query; no lock here.
 	res := app.Application.LoadSnapshotChunk(req)
 	return &res, nil
 }
