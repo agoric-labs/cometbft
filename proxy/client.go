@@ -37,6 +37,23 @@ func (l *localClientCreator) NewABCIClient() (abcicli.Client, error) {
 	return abcicli.NewLocalClient(l.mtx, l.app), nil
 }
 
+//----------------------------------------------------
+// unlocked proxy leaves all locking up to the app
+
+type unlockedClientCreator struct {
+	app types.Application
+}
+
+func NewUnlockedClientCreator(app types.Application) ClientCreator {
+	return &unlockedClientCreator{
+		app: app,
+	}
+}
+
+func (l *unlockedClientCreator) NewABCIClient() (abcicli.Client, error) {
+	return abcicli.NewUnlockedClient(l.app), nil
+}
+
 //---------------------------------------------------------------
 // remote proxy opens new connections to an external app process
 
