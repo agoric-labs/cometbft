@@ -38,7 +38,7 @@ func (l *localClientCreator) NewABCIClient() (abcicli.Client, error) {
 }
 
 //----------------------------------------------------
-// unlocked proxy leaves all locking up to the app
+// unlocked proxy allows concurrent "connections" to app without a global lock
 
 type unlockedClientCreator struct {
 	app types.Application
@@ -51,7 +51,7 @@ func NewUnlockedClientCreator(app types.Application) ClientCreator {
 }
 
 func (l *unlockedClientCreator) NewABCIClient() (abcicli.Client, error) {
-	return abcicli.NewUnlockedClient(l.app), nil
+	return abcicli.NewLocalClient(nil, l.app), nil
 }
 
 //---------------------------------------------------------------
