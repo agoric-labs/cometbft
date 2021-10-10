@@ -21,7 +21,8 @@ type committingClient struct {
 	// InitChain
 	// Commit
 	// ApplySnapshotChunk
-	mtx *tmsync.RWMutex
+	deliverMtx *tmsync.RWMutex
+	mtx        *tmsync.RWMutex
 	types.Application
 	Callback
 }
@@ -32,8 +33,10 @@ func NewCommittingClient(mtx *tmsync.RWMutex, app types.Application) Client {
 	}
 	cli := &committingClient{
 		mtx:         mtx,
+		deliverMtx:  new(tmsync.RWMutex),
 		Application: app,
 	}
+	cli.deliverMtx.Lock()
 	cli.BaseService = *service.NewBaseService(nil, "committingClient", cli)
 	return cli
 }
@@ -89,8 +92,8 @@ func (app *committingClient) SetOptionAsync(req types.RequestSetOption) *ReqRes 
 }
 
 func (app *committingClient) DeliverTxAsync(params types.RequestDeliverTx) *ReqRes {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	app.deliverMtx.RLock()
+	defer app.deliverMtx.RUnlock()
 
 	res := app.Application.DeliverTx(params)
 	return app.callback(
@@ -125,6 +128,13 @@ func (app *committingClient) CommitAsync() *ReqRes {
 	// Write lock
 	app.mtx.Lock()
 	defer app.mtx.Unlock()
+	if app.deliverMtx != app.mtx {
+		oldMtx := app.deliverMtx
+		defer func() {
+			app.deliverMtx = app.mtx
+			oldMtx.Unlock()
+		}()
+	}
 
 	res := app.Application.Commit()
 	return app.callback(
@@ -240,8 +250,8 @@ func (app *committingClient) SetOptionSync(req types.RequestSetOption) (*types.R
 }
 
 func (app *committingClient) DeliverTxSync(req types.RequestDeliverTx) (*types.ResponseDeliverTx, error) {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	app.deliverMtx.RLock()
+	defer app.deliverMtx.RUnlock()
 
 	res := app.Application.DeliverTx(req)
 	return &res, nil
@@ -267,6 +277,13 @@ func (app *committingClient) CommitSync() (*types.ResponseCommit, error) {
 	// Write lock
 	app.mtx.Lock()
 	defer app.mtx.Unlock()
+	if app.deliverMtx != app.mtx {
+		oldMtx := app.deliverMtx
+		defer func() {
+			app.deliverMtx = app.mtx
+			oldMtx.Unlock()
+		}()
+	}
 
 	res := app.Application.Commit()
 	return &res, nil
