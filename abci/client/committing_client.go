@@ -1,6 +1,8 @@
 package abcicli
 
 import (
+	"sync"
+
 	types "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/service"
 	tmsync "github.com/tendermint/tendermint/libs/sync"
@@ -22,17 +24,52 @@ type committingClient struct {
 	// Commit
 	// ApplySnapshotChunk
 	mtx *tmsync.RWMutex
+
+	// If called with false, we will wait until the app is ready to serve queries
+	// and deliveries.
+	// CONTRACT: The mtx read lock must be held.
+	//
+	// If called with true, we will indicate that the app is ready.
+	// CONTRACT: The mtx write lock must be held.
+	guardUntilStateIsCommitted func(bool)
+
 	types.Application
 	Callback
 }
 
-func NewCommittingClient(mtx *tmsync.RWMutex, app types.Application) Client {
+// NewCommittingClientGuard uses a condition variable to implement a guard.
+func NewCommittingClientGuard(mtx *tmsync.RWMutex) func(bool) {
+	waitWhileGuardIsActive := sync.NewCond(mtx.RLocker())
+	guardIsActive := true
+	return func(deactivateGuard bool) {
+		if !guardIsActive {
+			// No need for action.  The guard is no longer active.
+			return
+		}
+
+		if deactivateGuard {
+			// Advertise our no-longer-active status.
+			guardIsActive = false
+			waitWhileGuardIsActive.Broadcast()
+			return
+		}
+
+		// We need to wait on the condition.
+		waitWhileGuardIsActive.Wait()
+	}
+}
+
+func NewCommittingClient(mtx *tmsync.RWMutex, guardUntilStateIsCommitted func(bool), app types.Application) Client {
 	if mtx == nil {
 		mtx = new(tmsync.RWMutex)
 	}
+	if guardUntilStateIsCommitted == nil {
+		guardUntilStateIsCommitted = NewCommittingClientGuard(mtx)
+	}
 	cli := &committingClient{
-		mtx:         mtx,
-		Application: app,
+		mtx:                        mtx,
+		guardUntilStateIsCommitted: guardUntilStateIsCommitted,
+		Application:                app,
 	}
 	cli.BaseService = *service.NewBaseService(nil, "committingClient", cli)
 	return cli
@@ -91,6 +128,7 @@ func (app *committingClient) SetOptionAsync(req types.RequestSetOption) *ReqRes 
 func (app *committingClient) DeliverTxAsync(params types.RequestDeliverTx) *ReqRes {
 	app.mtx.RLock()
 	defer app.mtx.RUnlock()
+	app.guardUntilStateIsCommitted(false)
 
 	res := app.Application.DeliverTx(params)
 	return app.callback(
@@ -102,6 +140,7 @@ func (app *committingClient) DeliverTxAsync(params types.RequestDeliverTx) *ReqR
 func (app *committingClient) CheckTxAsync(req types.RequestCheckTx) *ReqRes {
 	app.mtx.RLock()
 	defer app.mtx.RUnlock()
+	app.guardUntilStateIsCommitted(false)
 
 	res := app.Application.CheckTx(req)
 	return app.callback(
@@ -113,6 +152,7 @@ func (app *committingClient) CheckTxAsync(req types.RequestCheckTx) *ReqRes {
 func (app *committingClient) QueryAsync(req types.RequestQuery) *ReqRes {
 	app.mtx.RLock()
 	defer app.mtx.RUnlock()
+	app.guardUntilStateIsCommitted(false)
 
 	res := app.Application.Query(req)
 	return app.callback(
@@ -127,6 +167,11 @@ func (app *committingClient) CommitAsync() *ReqRes {
 	defer app.mtx.Unlock()
 
 	res := app.Application.Commit()
+
+	// We're still holding the write lock, but now the application has committed,
+	// so ensure nobody else has to wait for the state.
+	app.guardUntilStateIsCommitted(true)
+
 	return app.callback(
 		types.ToRequestCommit(),
 		types.ToResponseCommit(res),
@@ -242,6 +287,7 @@ func (app *committingClient) SetOptionSync(req types.RequestSetOption) (*types.R
 func (app *committingClient) DeliverTxSync(req types.RequestDeliverTx) (*types.ResponseDeliverTx, error) {
 	app.mtx.RLock()
 	defer app.mtx.RUnlock()
+	app.guardUntilStateIsCommitted(false)
 
 	res := app.Application.DeliverTx(req)
 	return &res, nil
@@ -250,6 +296,7 @@ func (app *committingClient) DeliverTxSync(req types.RequestDeliverTx) (*types.R
 func (app *committingClient) CheckTxSync(req types.RequestCheckTx) (*types.ResponseCheckTx, error) {
 	app.mtx.RLock()
 	defer app.mtx.RUnlock()
+	app.guardUntilStateIsCommitted(false)
 
 	res := app.Application.CheckTx(req)
 	return &res, nil
@@ -258,6 +305,7 @@ func (app *committingClient) CheckTxSync(req types.RequestCheckTx) (*types.Respo
 func (app *committingClient) QuerySync(req types.RequestQuery) (*types.ResponseQuery, error) {
 	app.mtx.RLock()
 	defer app.mtx.RUnlock()
+	app.guardUntilStateIsCommitted(false)
 
 	res := app.Application.Query(req)
 	return &res, nil
@@ -269,6 +317,11 @@ func (app *committingClient) CommitSync() (*types.ResponseCommit, error) {
 	defer app.mtx.Unlock()
 
 	res := app.Application.Commit()
+
+	// We're still holding the write lock, but now the application has committed,
+	// so ensure nobody else has to wait for the state.
+	app.guardUntilStateIsCommitted(true)
+
 	return &res, nil
 }
 
