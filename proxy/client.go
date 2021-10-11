@@ -41,13 +41,15 @@ func (l *localClientCreator) NewABCIClient() (abcicli.Client, error) {
 // committing proxy ensures only actual DB writes block queries
 
 type committingClientCreator struct {
-	mtx *tmsync.RWMutex
-	app types.Application
+	mtx   *tmsync.RWInitMutex
+	guard func(bool)
+	app   types.Application
 }
 
 func NewCommittingClientCreator(app types.Application) ClientCreator {
+	mtx := tmsync.NewRWInitMutex()
 	return &committingClientCreator{
-		mtx: new(tmsync.RWMutex),
+		mtx: mtx,
 		app: app,
 	}
 }

@@ -15,20 +15,27 @@ var _ Client = (*committingClient)(nil)
 type committingClient struct {
 	service.BaseService
 
+	// Obtain a read-init lock when calling Application methods that result in a
+	// state read.  This is currently:
+	// CheckTx
+	// DeliverTx
+	// Query
+	//
 	// Only obtain a write lock when calling Application methods that are expected
 	// to result in a state mutation.  This is currently:
 	// SetOption
 	// InitChain
-	// Commit
+	// Commit - sets the Initialized state
 	// ApplySnapshotChunk
-	mtx *tmsync.RWMutex
+	mtx *tmsync.RWInitMutex
+
 	types.Application
 	Callback
 }
 
-func NewCommittingClient(mtx *tmsync.RWMutex, app types.Application) Client {
+func NewCommittingClient(mtx *tmsync.RWInitMutex, app types.Application) Client {
 	if mtx == nil {
-		mtx = new(tmsync.RWMutex)
+		mtx = tmsync.NewRWInitMutex()
 	}
 	cli := &committingClient{
 		mtx:         mtx,
@@ -89,8 +96,9 @@ func (app *committingClient) SetOptionAsync(req types.RequestSetOption) *ReqRes 
 }
 
 func (app *committingClient) DeliverTxAsync(params types.RequestDeliverTx) *ReqRes {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	locker := app.mtx.RInitLocker()
+	locker.Lock()
+	defer locker.Unlock()
 
 	res := app.Application.DeliverTx(params)
 	return app.callback(
@@ -100,8 +108,9 @@ func (app *committingClient) DeliverTxAsync(params types.RequestDeliverTx) *ReqR
 }
 
 func (app *committingClient) CheckTxAsync(req types.RequestCheckTx) *ReqRes {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	locker := app.mtx.RInitLocker()
+	locker.Lock()
+	defer locker.Unlock()
 
 	res := app.Application.CheckTx(req)
 	return app.callback(
@@ -111,8 +120,9 @@ func (app *committingClient) CheckTxAsync(req types.RequestCheckTx) *ReqRes {
 }
 
 func (app *committingClient) QueryAsync(req types.RequestQuery) *ReqRes {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	locker := app.mtx.RInitLocker()
+	locker.Lock()
+	defer locker.Unlock()
 
 	res := app.Application.Query(req)
 	return app.callback(
@@ -127,6 +137,8 @@ func (app *committingClient) CommitAsync() *ReqRes {
 	defer app.mtx.Unlock()
 
 	res := app.Application.Commit()
+	app.mtx.Initialize()
+
 	return app.callback(
 		types.ToRequestCommit(),
 		types.ToResponseCommit(res),
@@ -240,24 +252,27 @@ func (app *committingClient) SetOptionSync(req types.RequestSetOption) (*types.R
 }
 
 func (app *committingClient) DeliverTxSync(req types.RequestDeliverTx) (*types.ResponseDeliverTx, error) {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	locker := app.mtx.RInitLocker()
+	locker.Lock()
+	defer locker.Unlock()
 
 	res := app.Application.DeliverTx(req)
 	return &res, nil
 }
 
 func (app *committingClient) CheckTxSync(req types.RequestCheckTx) (*types.ResponseCheckTx, error) {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	locker := app.mtx.RInitLocker()
+	locker.Lock()
+	defer locker.Unlock()
 
 	res := app.Application.CheckTx(req)
 	return &res, nil
 }
 
 func (app *committingClient) QuerySync(req types.RequestQuery) (*types.ResponseQuery, error) {
-	app.mtx.RLock()
-	defer app.mtx.RUnlock()
+	locker := app.mtx.RInitLocker()
+	locker.Lock()
+	defer locker.Unlock()
 
 	res := app.Application.Query(req)
 	return &res, nil
@@ -269,6 +284,8 @@ func (app *committingClient) CommitSync() (*types.ResponseCommit, error) {
 	defer app.mtx.Unlock()
 
 	res := app.Application.Commit()
+	app.mtx.Initialize()
+
 	return &res, nil
 }
 
