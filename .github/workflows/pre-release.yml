@@ -57,21 +57,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack upon pre-release
-        uses: slackapi/slack-github-action@v1.24.0
+# AGORIC TODO: Update to slackapi/slack-github-action to match upstream cometbft
+# (requires replacing the SLACK_WEBHOOK secret with SLACK_WEBHOOK_URL)
+        uses: rtCamp/action-slack-notify@b24d75fe0e728a4bf9fc42ee217caa686d141ee8
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-          RELEASE_URL: "${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
-        with:
-          payload: |
-            {
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": ":sparkles: New CometBFT pre-release: <${{ env.RELEASE_URL }}|${{ github.ref_name }}>"
-                  }
-                }
-              ]
-            }
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: ops-engineering
+          SLACK_USERNAME: CometBFT Tests
+          SLACK_ICON_EMOJI: ':sparkles:'
+          SLACK_COLOR: warning
+          SLACK_MESSAGE: "New CometBFT pre-release: ${{ github.ref_name }} ${{ env.RELEASE_URL }}"
+          SLACK_FOOTER: ''
