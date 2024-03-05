@@ -5,16 +5,14 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
-
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	"github.com/tendermint/tendermint/p2p"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	"github.com/tendermint/tendermint/proxy"
-	sm "github.com/tendermint/tendermint/state"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/config"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	"github.com/cometbft/cometbft/p2p"
+	ssproto "github.com/cometbft/cometbft/proto/tendermint/statesync"
+	"github.com/cometbft/cometbft/proxy"
+	sm "github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -128,7 +126,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 			for _, snapshot := range snapshots {
 				r.Logger.Debug("Advertising snapshot", "height", snapshot.Height,
 					"format", snapshot.Format, "peer", e.Src.ID())
-				p2p.SendEnvelopeShim(e.Src, p2p.Envelope{ //nolint: staticcheck
+				e.Src.SendEnvelope(p2p.Envelope{
 					ChannelID: e.ChannelID,
 					Message: &ssproto.SnapshotsResponse{
 						Height:   snapshot.Height,
@@ -137,7 +135,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 						Hash:     snapshot.Hash,
 						Metadata: snapshot.Metadata,
 					},
-				}, r.Logger)
+				})
 			}
 
 		case *ssproto.SnapshotsResponse:
@@ -183,7 +181,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 			}
 			r.Logger.Debug("Sending chunk", "height", msg.Height, "format", msg.Format,
 				"chunk", msg.Index, "peer", e.Src.ID())
-			p2p.SendEnvelopeShim(e.Src, p2p.Envelope{ //nolint: staticcheck
+			e.Src.SendEnvelope(p2p.Envelope{
 				ChannelID: ChunkChannel,
 				Message: &ssproto.ChunkResponse{
 					Height:  msg.Height,
@@ -192,7 +190,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 					Chunk:   resp.Chunk,
 					Missing: resp.Chunk == nil,
 				},
-			}, r.Logger)
+			})
 
 		case *ssproto.ChunkResponse:
 			r.mtx.RLock()
@@ -223,24 +221,6 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 	default:
 		r.Logger.Error("Received message on invalid channel %x", e.ChannelID)
 	}
-}
-
-func (r *Reactor) Receive(chID byte, peer p2p.Peer, msgBytes []byte) {
-	msg := &ssproto.Message{}
-	err := proto.Unmarshal(msgBytes, msg)
-	if err != nil {
-		panic(err)
-	}
-	um, err := msg.Unwrap()
-	if err != nil {
-		panic(err)
-	}
-
-	r.ReceiveEnvelope(p2p.Envelope{
-		ChannelID: chID,
-		Src:       peer,
-		Message:   um,
-	})
 }
 
 // recentSnapshots fetches the n most recent snapshots from the app

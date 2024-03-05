@@ -4,12 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cometbft/cometbft/test/loadtime/payload"
+	"github.com/cometbft/cometbft/test/loadtime/report"
+	"github.com/cometbft/cometbft/types"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	"github.com/tendermint/tendermint/test/loadtime/payload"
-	"github.com/tendermint/tendermint/test/loadtime/report"
-	"github.com/tendermint/tendermint/types"
 )
 
 type mockBlockStore struct {
@@ -102,7 +101,7 @@ func TestGenerateReport(t *testing.T) {
 	}
 	r := rl[0]
 	if len(r.All) != 4 {
-		t.Fatalf("report contained different number of data points from expected. Expected %d but contained %d", 4, len(r.All)) //nolint:lll
+		t.Fatalf("report contained different number of data points from expected. Expected %d but contained %d", 4, len(r.All))
 	}
 	if r.NegativeCount != 2 {
 		t.Fatalf("NegativeCount did not match expected. Expected %d but contained %d", 2, r.NegativeCount)

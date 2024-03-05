@@ -90,7 +90,7 @@ Auxiliary commands:
 
 * `logs`: outputs all node logs.
 
-* `tail`: tails (follows) node logs until cancelled.
+* `tail`: tails (follows) node logs until canceled.
 
 ## Tests
 

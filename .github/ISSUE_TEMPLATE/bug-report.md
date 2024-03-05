@@ -1,9 +1,10 @@
 ---
-name: Bug Report
+name: Bug report
 about: Create a report to help us squash bugs!
 labels: bug, needs-triage
 ---
 <!--
+
 Please fill in as much of the template below as you can.
 
 If you have general questions, please create a new discussion:

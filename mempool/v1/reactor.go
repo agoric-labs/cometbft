@@ -1,3 +1,4 @@
+// Deprecated: Priority mempool will be removed in the next major release.
 package v1
 
 import (
@@ -5,16 +6,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
-
-	cfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/clist"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	"github.com/tendermint/tendermint/mempool"
-	"github.com/tendermint/tendermint/p2p"
-	protomem "github.com/tendermint/tendermint/proto/tendermint/mempool"
-	"github.com/tendermint/tendermint/types"
+	cfg "github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/clist"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	"github.com/cometbft/cometbft/mempool"
+	"github.com/cometbft/cometbft/p2p"
+	protomem "github.com/cometbft/cometbft/proto/tendermint/mempool"
+	"github.com/cometbft/cometbft/types"
 )
 
 // Reactor handles mempool tx broadcasting amongst peers.
@@ -189,23 +188,6 @@ func (memR *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 	// broadcasting happens from go routines per peer
 }
 
-func (memR *Reactor) Receive(chID byte, peer p2p.Peer, msgBytes []byte) {
-	msg := &protomem.Message{}
-	err := proto.Unmarshal(msgBytes, msg)
-	if err != nil {
-		panic(err)
-	}
-	uw, err := msg.Unwrap()
-	if err != nil {
-		panic(err)
-	}
-	memR.ReceiveEnvelope(p2p.Envelope{
-		ChannelID: chID,
-		Src:       peer,
-		Message:   uw,
-	})
-}
-
 // PeerState describes the state of a peer.
 type PeerState interface {
 	GetHeight() int64
@@ -262,10 +244,10 @@ func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
 		// NOTE: Transaction batching was disabled due to
 		// https://github.com/tendermint/tendermint/issues/5796
 		if !memTx.HasPeer(peerID) {
-			success := p2p.SendEnvelopeShim(peer, p2p.Envelope{ //nolint: staticcheck
+			success := peer.SendEnvelope(p2p.Envelope{
 				ChannelID: mempool.MempoolChannel,
 				Message:   &protomem.Txs{Txs: [][]byte{memTx.tx}},
-			}, memR.Logger)
+			})
 			if !success {
 				time.Sleep(mempool.PeerCatchupSleepIntervalMS * time.Millisecond)
 				continue

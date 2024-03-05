@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/fortytw2/leaktest"
-	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/protoio"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
-	"github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/libs/protoio"
+	tmp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
+	"github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 const maxPingPongPacketSize = 1024 // bytes
@@ -112,7 +112,7 @@ func TestMConnectionSend(t *testing.T) {
 	assert.False(t, mconn.Send(0x05, []byte("Absorbing Man")), "Send should return false because channel is unknown")
 }
 
-func TestMConnectionReceive(t *testing.T) {
+func TestMConnectionReceiveEnvelope(t *testing.T) {
 	server, client := NetPipe()
 	defer server.Close()
 	defer client.Close()

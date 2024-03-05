@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/p2p"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	"github.com/cometbft/cometbft/p2p"
 )
 
 func main() {
@@ -47,7 +47,7 @@ func initCorpus(baseDir string) {
 			log.Fatalf("can't marshal %v: %v", addr, err)
 		}
 
-		//nolint:gosec // G306: Expect WriteFile permissions to be 0600 or less
+		//nolint:gosec
 		if err := os.WriteFile(filename, bz, 0o644); err != nil {
 			log.Fatalf("can't write %v to %q: %v", addr, filename, err)
 		}

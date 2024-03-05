@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/cometbft/cometbft/libs/pubsub/query"
+	"github.com/cometbft/cometbft/state/indexer"
+	"github.com/cometbft/cometbft/types"
 	"github.com/google/orderedcode"
-	"github.com/tendermint/tendermint/libs/pubsub/query"
-	"github.com/tendermint/tendermint/state/indexer"
-	"github.com/tendermint/tendermint/types"
 )
 
 type HeightInfo struct {
@@ -28,24 +28,6 @@ func intInSlice(a int, list []int) bool {
 	return false
 }
 
-func dedupMatchEvents(conditions []query.Condition) ([]query.Condition, bool) {
-	var dedupConditions []query.Condition
-	matchEvents := false
-	for i, c := range conditions {
-		if c.CompositeKey == types.MatchEventKey {
-			// Match events should be added only via RPC as the very first query condition
-			if i == 0 && c.Op == query.OpEqual && c.Operand.(*big.Int).Int64() == 1 {
-				dedupConditions = append(dedupConditions, c)
-				matchEvents = true
-			}
-		} else {
-			dedupConditions = append(dedupConditions, c)
-		}
-
-	}
-	return dedupConditions, matchEvents
-}
-
 func ParseEventSeqFromEventKey(key []byte) (int64, error) {
 	var (
 		compositeKey, typ, eventValue string
@@ -64,11 +46,10 @@ func ParseEventSeqFromEventKey(key []byte) (int64, error) {
 
 	return eventSeq, nil
 }
-
 func dedupHeight(conditions []query.Condition) (dedupConditions []query.Condition, heightInfo HeightInfo) {
 	heightInfo.heightEqIdx = -1
-	found := false
 	heightRangeExists := false
+	found := false
 	var heightCondition []query.Condition
 	heightInfo.onlyHeightEq = true
 	heightInfo.onlyHeightRange = true
@@ -88,10 +69,8 @@ func dedupHeight(conditions []query.Condition) (dedupConditions []query.Conditio
 				dedupConditions = append(dedupConditions, c)
 			}
 		} else {
-			if c.CompositeKey != types.MatchEventKey {
-				heightInfo.onlyHeightRange = false
-				heightInfo.onlyHeightEq = false
-			}
+			heightInfo.onlyHeightRange = false
+			heightInfo.onlyHeightEq = false
 			dedupConditions = append(dedupConditions, c)
 		}
 	}

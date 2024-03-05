@@ -1,5 +1,5 @@
 ---
-order: 4
+order: 1
 ---
 
 # Creating an application in Go
@@ -46,7 +46,7 @@ Verify that you have the latest version of Go installed (refer to the [official 
 
 ```bash
 $ go version
-go version go1.19.2 darwin/amd64
+go version go1.20.1 darwin/amd64
 ```
 
 ## 1.2 Creating a new Go project
@@ -80,12 +80,12 @@ Hello, CometBFT
 ```
 
 We are going to use [Go modules](https://github.com/golang/go/wiki/Modules) for
-dependency management, so let's start by including a dependency on this version of
-CometBFT.
+dependency management, so let's start by including a dependency on the latest version of
+CometBFT, `v0.37.0` in this example.
 
 ```bash
 go mod init kvstore
-go get github.com/cometbft/cometbft@v0.34.27
+go get github.com/cometbft/cometbft@v0.37.0
 ```
 
 After running the above commands you will see two generated files, `go.mod` and `go.sum`.
@@ -94,10 +94,10 @@ The go.mod file should look similar to:
 ```go
 module github.com/me/example
 
-go 1.19
+go 1.20
 
 require (
-	github.com/cometbft/cometbft v0.34.27
+	github.com/cometbft/cometbft v0.37.0
 )
 ```
 
@@ -115,7 +115,7 @@ go build
 CometBFT communicates with the application through the Application
 BlockChain Interface (ABCI). The messages exchanged through the interface are
 defined in the ABCI [protobuf
-file](https://github.com/cometbft/cometbft/blob/v0.34.x/proto/tendermint/abci/types.proto).
+file](https://github.com/cometbft/cometbft/blob/v0.37.x/proto/tendermint/abci/types.proto).
 
 We begin by creating the basic scaffolding for an ABCI application by
 creating a new type, `KVStoreApplication`, which implements the
@@ -152,6 +152,14 @@ func (app *KVStoreApplication) CheckTx(tx abcitypes.RequestCheckTx) abcitypes.Re
 
 func (app *KVStoreApplication) InitChain(chain abcitypes.RequestInitChain) abcitypes.ResponseInitChain {
 	return abcitypes.ResponseInitChain{}
+}
+
+func (app *KVStoreApplication) PrepareProposal(proposal abcitypes.RequestPrepareProposal) abcitypes.ResponsePrepareProposal {
+	return abcitypes.ResponsePrepareProposal{}
+}
+
+func (app *KVStoreApplication) ProcessProposal(proposal abcitypes.RequestProcessProposal) abcitypes.ResponseProcessProposal {
+	return abcitypes.ResponseProcessProposal{}
 }
 
 func (app *KVStoreApplication) BeginBlock(block abcitypes.RequestBeginBlock) abcitypes.ResponseBeginBlock {
@@ -191,7 +199,7 @@ The types used here are defined in the CometBFT library and were added as a depe
 to the project when you ran `go get`. If your IDE is not recognizing the types, go ahead and run the command again.
 
 ```bash
-go get github.com/cometbft/cometbft@v0.34.27
+go get github.com/cometbft/cometbft@v0.37.0
 ```
 
 Now go back to the `main.go` and modify the `main` function so it matches the following,
@@ -447,8 +455,39 @@ func (app *KVStoreApplication) Query(req abcitypes.RequestQuery) abcitypes.Respo
 Since it reads only committed data from the store, transactions that are part of a block
 that is being processed are not reflected in the query result.
 
+### 1.3.5 PrepareProposal and ProcessProposal
 
+`PrepareProposal` and `ProcessProposal` are methods introduced in CometBFT v0.37.0
+to give the application more control over the construction and processing of transaction blocks.
 
+When CometBFT sees that valid transactions (validated through `CheckTx`) are available to be
+included in blocks, it groups some of these transactions and then gives the application a chance
+to modify the group by invoking `PrepareProposal`.
+
+The application is free to modify the group before returning from the call, as long as the resulting set
+does not use more bytes than `RequestPrepareProposal.max_tx_bytes'
+For example, the application may reorder, add, or even remove transactions from the group to improve the
+execution of the block once accepted.
+In the following code, the application simply returns the unmodified group of transactions:
+
+```go
+func (app *KVStoreApplication) PrepareProposal(proposal abcitypes.RequestPrepareProposal) abcitypes.ResponsePrepareProposal {
+	return abcitypes.ResponsePrepareProposal{Txs: proposal.Txs}
+}
+```
+
+Once a proposed block is received by a node, the proposal is passed to the application to give
+its blessing before voting to accept the proposal.
+
+This mechanism may be used for different reasons, for example to deal with blocks manipulated
+by malicious nodes, in which case the block should not be considered valid.
+The following code simply accepts all proposals:
+
+```go
+func (app *KVStoreApplication) ProcessProposal(proposal abcitypes.RequestProcessProposal) abcitypes.ResponseProcessProposal {
+	return abcitypes.ResponseProcessProposal{Status: abcitypes.ResponseProcessProposal_ACCEPT}
+}
+```
 
 ## 1.4 Starting an application and a CometBFT instance
 
@@ -536,13 +575,6 @@ First, we initialize the Badger database and create an app instance:
 	app := NewKVStoreApplication(db)
 ```
 
-For **Windows** users, restarting this app will make badger throw an error as it requires value log to be truncated. For more information on this, visit [here](https://github.com/dgraph-io/badger/issues/744).
-This can be avoided by setting the truncate option to true, like this:
-
-```go
-	db, err := badger.Open(badger.DefaultOptions("/tmp/badger").WithTruncate(true))
-```
-
 Then we start the ABCI server and add some signal handling to gracefully stop
 it upon receiving SIGTERM or Ctrl-C. CometBFT will act as a client,
 which connects to our server and send us transactions and other messages.
@@ -566,12 +598,12 @@ which connects to our server and send us transactions and other messages.
 
 Our application is almost ready to run, but first we'll need to populate the CometBFT configuration files.
 The following command will create a `cometbft-home` directory in your project and add a basic set of configuration files in `cometbft-home/config/`.
-For more information on what these files contain see [the configuration documentation](https://github.com/cometbft/cometbft/blob/v0.34.x/docs/core/configuration.md).
+For more information on what these files contain see [the configuration documentation](https://github.com/cometbft/cometbft/blob/v0.37.x/docs/core/configuration.md).
 
 From the root of your project, run:
 
 ```bash
-go run github.com/cometbft/cometbft/cmd/cometbft@v0.34.27 init --home /tmp/cometbft-home
+go run github.com/cometbft/cometbft/cmd/cometbft@v0.37.0 init --home /tmp/cometbft-home
 ```
 
 You should see an output similar to the following:
@@ -609,7 +641,7 @@ Open a new terminal window and cd to the same folder where the app is running.
 Then execute the following command:
 
 ```bash
-go run github.com/cometbft/cometbft/cmd/cometbft@v0.34.27 node --home /tmp/cometbft-home --proxy_app=unix://example.sock
+go run github.com/cometbft/cometbft/cmd/cometbft@v0.37.0 node --home /tmp/cometbft-home --proxy_app=unix://example.sock
 ```
 
 This should start the full node and connect to our ABCI application, which will be

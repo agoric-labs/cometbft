@@ -6,15 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
-
-	"github.com/tendermint/tendermint/libs/cmap"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/p2p/conn"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	"github.com/cometbft/cometbft/libs/cmap"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	"github.com/cometbft/cometbft/libs/service"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/p2p/conn"
+	cmtp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
 type Peer = p2p.Peer
@@ -184,7 +182,7 @@ func (r *Reactor) GetChannels() []*conn.ChannelDescriptor {
 			Priority:            1,
 			SendQueueCapacity:   10,
 			RecvMessageCapacity: maxMsgSize,
-			MessageType:         &tmp2p.Message{},
+			MessageType:         &cmtp2p.Message{},
 		},
 	}
 }
@@ -241,7 +239,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 	r.Logger.Debug("Received message", "src", e.Src, "chId", e.ChannelID, "msg", e.Message)
 
 	switch msg := e.Message.(type) {
-	case *tmp2p.PexRequest:
+	case *cmtp2p.PexRequest:
 
 		// NOTE: this is a prime candidate for amplification attacks,
 		// so it's important we
@@ -278,7 +276,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 			r.SendAddrs(e.Src, r.book.GetSelection())
 		}
 
-	case *tmp2p.PexAddrs:
+	case *cmtp2p.PexAddrs:
 		// If we asked for addresses, add them to the book
 		addrs, err := p2p.NetAddressesFromProto(msg.Addrs)
 		if err != nil {
@@ -298,23 +296,6 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 	default:
 		r.Logger.Error(fmt.Sprintf("Unknown message type %T", msg))
 	}
-}
-
-func (r *Reactor) Receive(chID byte, peer p2p.Peer, msgBytes []byte) {
-	msg := &tmp2p.Message{}
-	err := proto.Unmarshal(msgBytes, msg)
-	if err != nil {
-		panic(err)
-	}
-	um, err := msg.Unwrap()
-	if err != nil {
-		panic(err)
-	}
-	r.ReceiveEnvelope(p2p.Envelope{
-		ChannelID: chID,
-		Src:       peer,
-		Message:   um,
-	})
 }
 
 // enforces a minimum amount of time between requests
@@ -360,10 +341,10 @@ func (r *Reactor) RequestAddrs(p Peer) {
 	}
 	r.Logger.Debug("Request addrs", "from", p)
 	r.requestsSent.Set(id, struct{}{})
-	p2p.SendEnvelopeShim(p, p2p.Envelope{ //nolint: staticcheck
+	p.SendEnvelope(p2p.Envelope{
 		ChannelID: PexChannel,
-		Message:   &tmp2p.PexRequest{},
-	}, r.Logger)
+		Message:   &cmtp2p.PexRequest{},
+	})
 }
 
 // ReceiveAddrs adds the given addrs to the addrbook if theres an open
@@ -423,9 +404,9 @@ func (r *Reactor) ReceiveAddrs(addrs []*p2p.NetAddress, src Peer) error {
 func (r *Reactor) SendAddrs(p Peer, netAddrs []*p2p.NetAddress) {
 	e := p2p.Envelope{
 		ChannelID: PexChannel,
-		Message:   &tmp2p.PexAddrs{Addrs: p2p.NetAddressesToProto(netAddrs)},
+		Message:   &cmtp2p.PexAddrs{Addrs: p2p.NetAddressesToProto(netAddrs)},
 	}
-	p2p.SendEnvelopeShim(p, e, r.Logger) //nolint: staticcheck
+	p.SendEnvelope(e)
 }
 
 // SetEnsurePeersPeriod sets period to ensure peers connected.
@@ -508,7 +489,7 @@ func (r *Reactor) ensurePeers() {
 		}
 		// TODO: consider moving some checks from toDial into here
 		// so we don't even consider dialing peers that we want to wait
-		// before dialling again, or have dialed too many times already
+		// before dialing again, or have dialed too many times already
 		toDial[try.ID] = try
 	}
 

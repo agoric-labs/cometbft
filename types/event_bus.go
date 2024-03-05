@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtpubsub "github.com/tendermint/tendermint/libs/pubsub"
-	"github.com/tendermint/tendermint/libs/service"
+	"github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
+	"github.com/cometbft/cometbft/libs/service"
 )
 
 const defaultCapacity = 0
@@ -23,7 +23,7 @@ type EventBusSubscriber interface {
 
 type Subscription interface {
 	Out() <-chan cmtpubsub.Message
-	Cancelled() <-chan struct{}
+	Cancelled() <-chan struct{} //nolint: misspell
 	Err() error
 }
 
@@ -123,8 +123,8 @@ func (b *EventBus) validateAndStringifyEvents(events []types.Event, logger log.L
 				continue
 			}
 
-			compositeTag := fmt.Sprintf("%s.%s", event.Type, string(attr.Key))
-			result[compositeTag] = append(result[compositeTag], string(attr.Value))
+			compositeTag := fmt.Sprintf("%s.%s", event.Type, attr.Key)
+			result[compositeTag] = append(result[compositeTag], attr.Value)
 		}
 	}
 

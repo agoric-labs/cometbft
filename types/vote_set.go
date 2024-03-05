@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tendermint/tendermint/libs/bits"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/cometbft/cometbft/libs/bits"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 const (
@@ -226,6 +226,13 @@ func (voteSet *VoteSet) getVote(valIndex int32, blockKey string) (vote *Vote, ok
 		return existing, true
 	}
 	return nil, false
+}
+
+func (voteSet *VoteSet) GetVotes() []*Vote {
+	if voteSet == nil {
+		return nil
+	}
+	return voteSet.votes
 }
 
 // Assumes signature is valid.
@@ -629,6 +636,7 @@ func (voteSet *VoteSet) MakeCommit() *Commit {
 		if commitSig.ForBlock() && !v.BlockID.Equals(*voteSet.maj23) {
 			commitSig = NewCommitSigAbsent()
 		}
+
 		commitSigs[i] = commitSig
 	}
 

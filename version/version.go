@@ -1,17 +1,15 @@
 package version
 
 const (
-	// TMCoreSemVer is the used as the fallback version of CometBFT Core
-	// when not using git describe. It is formatted with semantic versioning.
-	TMCoreSemVer = "0.34.30"
-	// ABCISemVer is the semantic version of the ABCI library
-	ABCISemVer = "0.17.0"
 
+	// The default version of TMCoreSemVer is the value used as the
+	// fallback version of CometBFT when not using git describe.
+	// It is formatted with semantic versioning.
+	TMCoreSemVer = "0.37.4"
+	// ABCISemVer is the semantic version of the ABCI protocol
+	ABCISemVer  = "1.0.0"
 	ABCIVersion = ABCISemVer
-)
-
-var (
-	// P2PProtocol versions all p2p behaviour and msgs.
+	// P2PProtocol versions all p2p behavior and msgs.
 	// This includes proposer selection.
 	P2PProtocol uint64 = 8
 

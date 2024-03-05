@@ -4,7 +4,7 @@ order: 11
 
 # State Sync
 
-With fast sync a node is downloading all of the data of an application from genesis and verifying it. 
+With block sync a node is downloading all of the data of an application from genesis and verifying it. 
 With state sync your node will download data related to the head or near the head of the chain and verify the data. 
 This leads to drastically shorter times for joining a network. 
 
@@ -30,7 +30,7 @@ The next information you will need to acquire it through publicly exposed RPC's 
 - `trust_period`: Trust period is the period in which headers can be verified. 
   > :warning: This value should be significantly smaller than the unbonding period.
 
-If you are relying on publicly exposed RPC's to get the need information, you can use `curl`.
+If you are relying on publicly exposed RPC's to get the need information, you can use `curl` and [`jq`][jq].
 
 Example: 
 
@@ -46,3 +46,5 @@ The response will be:
   "hash": "188F4F36CBCD2C91B57509BBF231C777E79B52EE3E0D90D06B1A25EB16E6E23D"
 }
 ```
+
+[jq]: https://jqlang.github.io/jq/

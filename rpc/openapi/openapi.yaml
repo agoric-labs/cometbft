@@ -62,10 +62,10 @@ info:
 
         echo '{ "jsonrpc": "2.0","method": "subscribe","id": 0,"params": {"query": "tm.event='"'NewBlock'"'"} }' | websocat -n -t ws://127.0.0.1:26657/websocket
 
-  version: "v0.34"
+  version: "v0.37"
   license:
     name: Apache 2.0
-    url: https://github.com/cometbft/cometbft/blob/v0.34.x/LICENSE
+    url: https://github.com/cometbft/cometbft/blob/v0.37.x/LICENSE
 servers:
   - url: https://rpc.cosmos.directory/cosmoshub
     description: Interact with the CometBFT RPC from a public node in the Cosmos registry
@@ -92,7 +92,7 @@ paths:
       description: |
         If you want to be sure that the transaction is included in a block, you can
         subscribe for the result using JSONRPC via a websocket. See
-        https://docs.cometbft.com/v0.34/core/subscription.html
+        https://docs.cometbft.com/v0.37/core/subscription.html
         If you haven't received anything after a couple of blocks, resend it. If the
         same happens again, send it to some other node. A few reasons why it could
         happen:
@@ -102,8 +102,9 @@ paths:
         drop transactions, which might become valid in the future
         (https://github.com/tendermint/tendermint/issues/3322)
 
+
         Please refer to
-        https://docs.cometbft.com/v0.34/core/using-cometbft.html#formatting
+        https://docs.cometbft.com/v0.37/core/using-cometbft.html#formatting
         for formatting/encoding rules.
 
       parameters:
@@ -136,7 +137,7 @@ paths:
       description: |
         If you want to be sure that the transaction is included in a block, you can
         subscribe for the result using JSONRPC via a websocket. See
-        https://docs.cometbft.com/v0.34/core/subscription.html
+        https://docs.cometbft.com/v0.37/core/subscription.html
         If you haven't received anything after a couple of blocks, resend it. If the
         same happens again, send it to some other node. A few reasons why it could
         happen:
@@ -148,7 +149,7 @@ paths:
         3. node can be offline
 
         Please refer to
-        https://docs.cometbft.com/v0.34/core/using-cometbft.html#formatting
+        https://docs.cometbft.com/v0.37/core/using-cometbft.html#formatting
         for formatting/encoding rules.
 
       parameters:
@@ -182,7 +183,7 @@ paths:
         IMPORTANT: use only for testing and development. In production, use
         BroadcastTxSync or BroadcastTxAsync. You can subscribe for the transaction
         result using JSONRPC via a websocket. See
-        https://docs.cometbft.com/v0.34/core/subscription.html
+        https://docs.cometbft.com/v0.37/core/subscription.html
 
         CONTRACT: only returns error if mempool.CheckTx() errs or if we timeout
         waiting for tx to commit.
@@ -191,7 +192,7 @@ paths:
         will contain a non-OK ABCI code.
 
         Please refer to
-        https://docs.cometbft.com/v0.34/core/using-cometbft.html#formatting
+        https://docs.cometbft.com/v0.37/core/using-cometbft.html#formatting
         for formatting/encoding rules.
 
       parameters:
@@ -225,7 +226,7 @@ paths:
         The transaction won't be added to the mempool.
 
         Please refer to
-        https://docs.cometbft.com/v0.34/core/using-cometbft.html#formatting
+        https://docs.cometbft.com/v0.37/core/using-cometbft.html#formatting
         for formatting/encoding rules.
 
         Upon success, the `Cache-Control` header will be set with the default
@@ -295,7 +296,7 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /net_info:
     get:
-      summary: Network informations
+      summary: Network information
       operationId: net_info
       tags:
         - Info
@@ -332,8 +333,7 @@ paths:
             type: array
             items:
               type: string
-              example:
-                "f9baeaa15fedf5e1ef7448dd60f46c01f1a9e9c4@1.2.3.4:26656"
+              example: "f9baeaa15fedf5e1ef7448dd60f46c01f1a9e9c4@1.2.3.4:26656"
       responses:
         "200":
           description: Dialing seeds in progress. See /net_info for details
@@ -383,10 +383,7 @@ paths:
             type: array
             items:
               type: string
-              example:
-                "f9baeaa15fedf5e1ef7448dd60f46c01f1a9e9c4@1.2.3.4:26656"
-            example:
-              ["f9baeaa15fedf5e1ef7448dd60f46c01f1a9e9c4@1.2.3.4:26656", "f9baeaa15fedf5e1ef7448dd60f46c01f1a9e9c4@1.2.3.5:26656"]
+              example: "f9baeaa15fedf5e1ef7448dd60f46c01f1a9e9c4@1.2.3.4:26656"
       responses:
         "200":
           description: Dialing seeds in progress. See /net_info for details
@@ -433,6 +430,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BlockchainResponse"
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /header:
+    get:
+      summary: Get header at a specified height
+      operationId: header
+      parameters:
+        - in: query
+          name: height
+          schema:
+            type: integer
+            default: 0
+            example: 1
+          description: height to return. If no height is provided, it will fetch the latest header.
+      tags:
+        - Info
+      description: |
+        Get Header.
+
+        If the `height` field is set to a non-default value, upon success, the
+        `Cache-Control` header will be set with the default maximum age.
+      responses:
+        "200":
+          description: Header informations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockHeader"
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /header_by_hash:
+    get:
+      summary: Get header by hash
+      operationId: header_by_hash
+      parameters:
+        - in: query
+          name: hash
+          description: header hash
+          required: true
+          schema:
+            type: string
+            example: "0xD70952032620CC4E2737EB8AC379806359D8E0B17B0488F627997A0B043ABDED"
+      tags:
+        - Info
+      description: |
+        Get Header By Hash.
+
+        Upon success, the `Cache-Control` header will be set with the default
+        maximum age.
+      responses:
+        "200":
+          description: Header informations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockHeader"
         "500":
           description: Error
           content:
@@ -518,8 +579,7 @@ paths:
       tags:
         - Info
       description: |
-        Get block_results. When the `discard_abci_responses` storage flag is
-        enabled, this endpoint will return an error.
+        Get block_results.
 
         If the `height` field is set to a non-default value, upon success, the
         `Cache-Control` header will be set with the default maximum age.
@@ -602,7 +662,8 @@ paths:
       tags:
         - Info
       description: |
-        Get Validators. Validators are sorted by voting power.
+        Get Validators. Validators are sorted first by voting power
+        (descending), then by address (ascending).
 
         If the `height` field is set to a non-default value, upon success, the
         `Cache-Control` header will be set with the default maximum age.
@@ -858,14 +919,6 @@ paths:
             type: string
             default: "asc"
             example: "asc"
-        - in: query
-          name: match_events
-          description: Match attributes in query within events, in addition to the height & txhash
-          required: false
-          schema:
-            type: boolean
-            default: false
-            example: true
       tags:
         - Info
       responses:
@@ -921,14 +974,6 @@ paths:
             type: string
             default: "desc"
             example: "asc"
-        - in: query
-          name: match_events
-          description: Match attributes in query within events, in addition to the height
-          required: false
-          schema:
-            type: boolean
-            default: false
-            example: true
       tags:
         - Info
       responses:
@@ -1553,7 +1598,7 @@ components:
                     nullable: false
                     items:
                       $ref: "#/components/schemas/Event"
-            end_block:
+            end_block_events:
               type: array
               nullable: true
               items:
@@ -1588,7 +1633,7 @@ components:
                   power:
                     type: string
                     example: "300"
-            consensus_params_updates:
+            consensus_param_updates:
               $ref: "#/components/schemas/ConsensusParams"
 
     CommitResponse:
@@ -2650,6 +2695,33 @@ components:
           type: string
           example: "Dialing seeds in progress. See /net_info for details"
 
+    BlockSearchResponse:
+      type: object
+      required:
+        - "jsonrpc"
+        - "id"
+        - "result"
+      properties:
+        jsonrpc:
+          type: string
+          example: "2.0"
+        id:
+          type: integer
+          example: 0
+        result:
+          required:
+            - "blocks"
+            - "total_count"
+          properties:
+            blocks:
+              type: array
+              items:
+                $ref: "#/components/schemas/BlockComplete"
+            total_count:
+              type: integer
+              example: 2
+          type: object
+
     ###### Reuseable types ######
 
     # Validator type with proposer prioirty
@@ -2740,10 +2812,10 @@ components:
       properties:
         key:
           type: string
-          example: "YWN0aW9u"
+          example: "action"
         value:
           type: string
-          example: "c2VuZA=="
+          example: "send"
         index:
           type: boolean
           example: false
@@ -2837,31 +2909,4 @@ components:
             hash:
               type: string
               example: "38D4B26B5B725C4F13571EFE022C030390E4C33C8CF6F88EDD142EA769642DBD"
-          type: object
-
-    BlockSearchResponse:
-      type: object
-      required:
-        - "jsonrpc"
-        - "id"
-        - "result"
-      properties:
-        jsonrpc:
-          type: string
-          example: "2.0"
-        id:
-          type: integer
-          example: 0
-        result:
-          required:
-            - "blocks"
-            - "total_count"
-          properties:
-            blocks:
-              type: array
-              items:
-                $ref: "#/components/schemas/BlockComplete"
-            total_count:
-              type: integer
-              example: 2
           type: object

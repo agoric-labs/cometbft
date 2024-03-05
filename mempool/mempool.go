@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -22,6 +22,8 @@ const (
 
 	MaxActiveIDs = math.MaxUint16
 )
+
+//go:generate ../scripts/mockery_generate.sh Mempool
 
 // Mempool defines the mempool interface.
 //

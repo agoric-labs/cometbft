@@ -6,16 +6,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
-
-	cfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/clist"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	"github.com/tendermint/tendermint/mempool"
-	"github.com/tendermint/tendermint/p2p"
-	protomem "github.com/tendermint/tendermint/proto/tendermint/mempool"
-	"github.com/tendermint/tendermint/types"
+	cfg "github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/clist"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	"github.com/cometbft/cometbft/mempool"
+	"github.com/cometbft/cometbft/p2p"
+	protomem "github.com/cometbft/cometbft/proto/tendermint/mempool"
+	"github.com/cometbft/cometbft/types"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -159,32 +157,37 @@ func (memR *Reactor) AddPeer(peer p2p.Peer) {
 		go func() {
 			// Always forward transactions to unconditional peers.
 			if !memR.Switch.IsPeerUnconditional(peer.ID()) {
+				// Depending on the type of peer, we choose a semaphore to limit the gossiping peers.
+				var peerSemaphore *semaphore.Weighted
 				if peer.IsPersistent() && memR.config.ExperimentalMaxGossipConnectionsToPersistentPeers > 0 {
-					// Block sending transactions to peer until one of the connections become
-					// available in the semaphore.
-					if err := memR.activePersistentPeersSemaphore.Acquire(context.TODO(), 1); err != nil {
-						memR.Logger.Error("Failed to acquire semaphore: %v", err)
-						return
-					}
-					// Release semaphore to allow other peer to start sending transactions.
-					defer memR.activePersistentPeersSemaphore.Release(1)
-					defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
+					peerSemaphore = memR.activePersistentPeersSemaphore
+				} else if !peer.IsPersistent() && memR.config.ExperimentalMaxGossipConnectionsToNonPersistentPeers > 0 {
+					peerSemaphore = memR.activeNonPersistentPeersSemaphore
 				}
 
-				if !peer.IsPersistent() && memR.config.ExperimentalMaxGossipConnectionsToNonPersistentPeers > 0 {
-					// Block sending transactions to peer until one of the connections become
-					// available in the semaphore.
-					if err := memR.activeNonPersistentPeersSemaphore.Acquire(context.TODO(), 1); err != nil {
-						memR.Logger.Error("Failed to acquire semaphore: %v", err)
-						return
+				if peerSemaphore != nil {
+					for peer.IsRunning() {
+						// Block on the semaphore until a slot is available to start gossiping with this peer.
+						// Do not block indefinitely, in case the peer is disconnected before gossiping starts.
+						ctxTimeout, cancel := context.WithTimeout(context.TODO(), 30*time.Second)
+						// Block sending transactions to peer until one of the connections become
+						// available in the semaphore.
+						err := peerSemaphore.Acquire(ctxTimeout, 1)
+						cancel()
+
+						if err != nil {
+							continue
+						}
+
+						// Release semaphore to allow other peer to start sending transactions.
+						defer peerSemaphore.Release(1)
+						break
 					}
-					// Release semaphore to allow other peer to start sending transactions.
-					defer memR.activeNonPersistentPeersSemaphore.Release(1)
-					defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
 				}
 			}
 
 			memR.mempool.metrics.ActiveOutboundConnections.Add(1)
+			defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
 			memR.broadcastTxRoutine(peer)
 		}()
 	}
@@ -229,23 +232,6 @@ func (memR *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 	}
 
 	// broadcasting happens from go routines per peer
-}
-
-func (memR *Reactor) Receive(chID byte, peer p2p.Peer, msgBytes []byte) {
-	msg := &protomem.Message{}
-	err := proto.Unmarshal(msgBytes, msg)
-	if err != nil {
-		panic(err)
-	}
-	uw, err := msg.Unwrap()
-	if err != nil {
-		panic(err)
-	}
-	memR.ReceiveEnvelope(p2p.Envelope{
-		ChannelID: chID,
-		Src:       peer,
-		Message:   uw,
-	})
 }
 
 // PeerState describes the state of a peer.
@@ -303,10 +289,10 @@ func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
 		// https://github.com/tendermint/tendermint/issues/5796
 
 		if _, ok := memTx.senders.Load(peerID); !ok {
-			success := p2p.SendEnvelopeShim(peer, p2p.Envelope{ //nolint: staticcheck
+			success := peer.SendEnvelope(p2p.Envelope{
 				ChannelID: mempool.MempoolChannel,
 				Message:   &protomem.Txs{Txs: [][]byte{memTx.tx}},
-			}, memR.Logger)
+			})
 			if !success {
 				time.Sleep(mempool.PeerCatchupSleepIntervalMS * time.Millisecond)
 				continue

@@ -1,18 +1,20 @@
 package state
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 
-	dbm "github.com/cometbft/cometbft-db"
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtos "github.com/tendermint/tendermint/libs/os"
-	cmtstate "github.com/tendermint/tendermint/proto/tendermint/state"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	dbm "github.com/cometbft/cometbft-db"
+
+	abci "github.com/cometbft/cometbft/abci/types"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtos "github.com/cometbft/cometbft/libs/os"
+	cmtstate "github.com/cometbft/cometbft/proto/tendermint/state"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -39,9 +41,8 @@ func calcABCIResponsesKey(height int64) []byte {
 
 //----------------------
 
-var (
-	lastABCIResponseKey = []byte("lastABCIResponseKey")
-)
+var lastABCIResponseKey = []byte("lastABCIResponseKey")
+var offlineStateSyncHeight = []byte("offlineStateSyncHeightKey")
 
 //go:generate ../scripts/mockery_generate.sh Store
 
@@ -65,7 +66,7 @@ type Store interface {
 	// LoadLastABCIResponse loads the last abciResponse for a given height
 	LoadLastABCIResponse(int64) (*cmtstate.ABCIResponses, error)
 	// LoadConsensusParams loads the consensus params for a given height
-	LoadConsensusParams(int64) (cmtproto.ConsensusParams, error)
+	LoadConsensusParams(int64) (types.ConsensusParams, error)
 	// Save overwrites the previous state with the updated one
 	Save(State) error
 	// SaveABCIResponses saves ABCIResponses for a given height
@@ -86,7 +87,6 @@ type dbStore struct {
 }
 
 type StoreOptions struct {
-
 	// DiscardABCIResponses determines whether or not the store
 	// retains all ABCIResponses. If DiscardABCiResponses is enabled,
 	// the store will maintain only the response object from the latest
@@ -95,6 +95,14 @@ type StoreOptions struct {
 }
 
 var _ Store = (*dbStore)(nil)
+
+func IsEmpty(store dbStore) (bool, error) {
+	state, err := store.Load()
+	if err != nil {
+		return false, err
+	}
+	return state.IsEmpty(), nil
+}
 
 // NewStore creates the dbStore of the state pkg.
 func NewStore(db dbm.DB, options StoreOptions) Store {
@@ -315,10 +323,11 @@ func (store dbStore) PruneStates(from int64, to int64) error {
 			}
 
 			if p.ConsensusParams.Equal(&cmtproto.ConsensusParams{}) {
-				p.ConsensusParams, err = store.LoadConsensusParams(h)
+				params, err := store.LoadConsensusParams(h)
 				if err != nil {
 					return err
 				}
+				p.ConsensusParams = params.ToProto()
 
 				p.LastHeightChanged = h
 				bz, err := p.Marshal()
@@ -387,7 +396,6 @@ func (store dbStore) LoadABCIResponses(height int64) (*cmtstate.ABCIResponses, e
 		return nil, err
 	}
 	if len(buf) == 0 {
-
 		return nil, ErrNoABCIResponsesForHeight{height}
 	}
 
@@ -588,15 +596,17 @@ func (store dbStore) saveValidatorsInfo(height, lastHeightChanged int64, valSet 
 // ConsensusParamsInfo represents the latest consensus params, or the last height it changed
 
 // LoadConsensusParams loads the ConsensusParams for a given height.
-func (store dbStore) LoadConsensusParams(height int64) (cmtproto.ConsensusParams, error) {
-	empty := cmtproto.ConsensusParams{}
-
+func (store dbStore) LoadConsensusParams(height int64) (types.ConsensusParams, error) {
+	var (
+		empty   = types.ConsensusParams{}
+		emptypb = cmtproto.ConsensusParams{}
+	)
 	paramsInfo, err := store.loadConsensusParamsInfo(height)
 	if err != nil {
 		return empty, fmt.Errorf("could not find consensus params for height #%d: %w", height, err)
 	}
 
-	if paramsInfo.ConsensusParams.Equal(&empty) {
+	if paramsInfo.ConsensusParams.Equal(&emptypb) {
 		paramsInfo2, err := store.loadConsensusParamsInfo(paramsInfo.LastHeightChanged)
 		if err != nil {
 			return empty, fmt.Errorf(
@@ -610,7 +620,7 @@ func (store dbStore) LoadConsensusParams(height int64) (cmtproto.ConsensusParams
 		paramsInfo = paramsInfo2
 	}
 
-	return paramsInfo.ConsensusParams, nil
+	return types.ConsensusParamsFromProto(paramsInfo.ConsensusParams), nil
 }
 
 func (store dbStore) loadConsensusParamsInfo(height int64) (*cmtstate.ConsensusParamsInfo, error) {
@@ -637,13 +647,13 @@ func (store dbStore) loadConsensusParamsInfo(height int64) (*cmtstate.ConsensusP
 // It should be called from s.Save(), right before the state itself is persisted.
 // If the consensus params did not change after processing the latest block,
 // only the last height for which they changed is persisted.
-func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, params cmtproto.ConsensusParams) error {
+func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, params types.ConsensusParams) error {
 	paramsInfo := &cmtstate.ConsensusParamsInfo{
 		LastHeightChanged: changeHeight,
 	}
 
 	if changeHeight == nextHeight {
-		paramsInfo.ConsensusParams = params
+		paramsInfo.ConsensusParams = params.ToProto()
 	}
 	bz, err := paramsInfo.Marshal()
 	if err != nil {
@@ -658,6 +668,61 @@ func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, par
 	return nil
 }
 
+/* Custom struct to handle offline state sync
+   Contains reference to a store so that it can access the DB
+*/
+
+type BootstrapStore struct {
+	dbStore
+}
+
+func NewBootstrapStore(db dbm.DB, options StoreOptions) BootstrapStore {
+	return BootstrapStore{
+		dbStore{
+			db:           db,
+			StoreOptions: options,
+		},
+	}
+}
+
+func (store BootstrapStore) SetOfflineStateSyncHeight(height int64) error {
+	err := store.db.SetSync(offlineStateSyncHeight, int64ToBytes(height))
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+// Gets the height at which the store is bootstrapped after out of band statesync
+func (store BootstrapStore) GetOfflineStateSyncHeight() (int64, error) {
+
+	buf, err := store.db.Get(offlineStateSyncHeight)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(buf) == 0 {
+		return 0, errors.New("value empty")
+	}
+
+	height := int64FromBytes(buf)
+	if height < 0 {
+		return 0, errors.New("invalid value for height: height cannot be negative")
+	}
+	return height, nil
+}
+
 func (store dbStore) Close() error {
 	return store.db.Close()
+}
+func int64FromBytes(bz []byte) int64 {
+	v, _ := binary.Varint(bz)
+	return v
+}
+
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutVarint(buf, i)
+	return buf[:n]
 }
