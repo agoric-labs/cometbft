@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '0 3 * * *'
   pull_request:
-    branches: [main]
+    branches: [Agoric]
     paths:
       - "test/fuzz/**/*.go"
 
@@ -18,6 +18,8 @@ jobs:
           go-version: '1.21'
 
       - uses: actions/checkout@v4
+        with:
+          ref: 'Agoric'
 
       - name: Install go-fuzz
         working-directory: test/fuzz
