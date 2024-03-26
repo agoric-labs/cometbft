@@ -34,9 +34,9 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
-## [v0.37.4-alpha.agoric.1]
+## [v0.37.5-alpha.agoric.1]
 
-* Merge `cometbft/cometbft v0.37.4`.
+* Merge `cometbft/cometbft v0.37.5`.
 
 ## [v0.34.30-alpha.agoric.1]
 
