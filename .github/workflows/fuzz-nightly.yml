@@ -1,23 +1,29 @@
 # Runs fuzzing nightly.
-name: fuzz-nightly
+name: Fuzz Tests
 on:
   workflow_dispatch:  # allow running workflow manually
   schedule:
     - cron: '0 3 * * *'
+  pull_request:
+    branches: [Agoric]
+    paths:
+      - "test/fuzz/**/*.go"
 
 jobs:
   fuzz-nightly-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.20'
+          go-version: '1.21'
 
       - uses: actions/checkout@v4
+        with:
+          ref: 'Agoric'
 
       - name: Install go-fuzz
         working-directory: test/fuzz
-        run: go get -u github.com/dvyukov/go-fuzz/go-fuzz github.com/dvyukov/go-fuzz/go-fuzz-build
+        run: go install github.com/dvyukov/go-fuzz/go-fuzz@latest github.com/dvyukov/go-fuzz/go-fuzz-build@latest
 
       - name: Fuzz mempool
         working-directory: test/fuzz
@@ -45,18 +51,18 @@ jobs:
         continue-on-error: true
 
       - name: Archive crashers
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: crashers
           path: test/fuzz/**/crashers
-          retention-days: 1
+          retention-days: 3
 
       - name: Archive suppressions
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: suppressions
           path: test/fuzz/**/suppressions
-          retention-days: 1
+          retention-days: 3
 
       - name: Set crashers count
         working-directory: test/fuzz
@@ -71,7 +77,9 @@ jobs:
     if: ${{ needs.fuzz-nightly-test.outputs.crashers-count != 0 }}
     runs-on: ubuntu-latest
     steps:
-      - name: Notify Slack if any crashers
+      - name: Notify Slack on failure
+# AGORIC TODO: Update to slackapi/slack-github-action to match upstream cometbft
+# (requires replacing the SLACK_WEBHOOK secret with SLACK_WEBHOOK_URL)
         uses: rtCamp/action-slack-notify@b24d75fe0e728a4bf9fc42ee217caa686d141ee8
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}

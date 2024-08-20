@@ -1,13 +1,16 @@
 package abcicli
 
 import (
-	types "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
+	types "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
 )
 
 var _ Client = (*committingClient)(nil)
 
+// committingClient is a clone of localClient (./local_client.go) with better
+// locking behavior for inbound read requests.
+//
 // NOTE: use defer to unlock mutex because Application might panic (e.g., in
 // case of malicious tx or query). It only makes sense for publicly exposed
 // methods like CheckTx (/broadcast_tx_* RPC endpoint) or Query (/abci_query
@@ -84,18 +87,6 @@ func (app *committingClient) InfoAsync(req types.RequestInfo) *ReqRes {
 	return app.callback(
 		types.ToRequestInfo(req),
 		types.ToResponseInfo(res),
-	)
-}
-
-func (app *committingClient) SetOptionAsync(req types.RequestSetOption) *ReqRes {
-	// Need to block all readers
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
-	res := app.Application.SetOption(req)
-	return app.callback(
-		types.ToRequestSetOption(req),
-		types.ToResponseSetOption(res),
 	)
 }
 
@@ -240,6 +231,30 @@ func (app *committingClient) ApplySnapshotChunkAsync(req types.RequestApplySnaps
 	)
 }
 
+func (app *committingClient) PrepareProposalAsync(req types.RequestPrepareProposal) *ReqRes {
+	// TODO: Verify appropriate lock level.
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.PrepareProposal(req)
+	return app.callback(
+		types.ToRequestPrepareProposal(req),
+		types.ToResponsePrepareProposal(res),
+	)
+}
+
+func (app *committingClient) ProcessProposalAsync(req types.RequestProcessProposal) *ReqRes {
+	// TODO: Verify appropriate lock level.
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.ProcessProposal(req)
+	return app.callback(
+		types.ToRequestProcessProposal(req),
+		types.ToResponseProcessProposal(res),
+	)
+}
+
 //-------------------------------------------------------
 
 func (app *committingClient) FlushSync() error {
@@ -258,15 +273,6 @@ func (app *committingClient) InfoSync(req types.RequestInfo) (*types.ResponseInf
 	defer app.mtx.RUnlock()
 
 	res := app.Application.Info(req)
-	return &res, nil
-}
-
-func (app *committingClient) SetOptionSync(req types.RequestSetOption) (*types.ResponseSetOption, error) {
-	// Need to block all readers
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
-	res := app.Application.SetOption(req)
 	return &res, nil
 }
 
@@ -377,6 +383,24 @@ func (app *committingClient) ApplySnapshotChunkSync(
 	defer app.mtx.Unlock()
 
 	res := app.Application.ApplySnapshotChunk(req)
+	return &res, nil
+}
+
+func (app *committingClient) PrepareProposalSync(req types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
+	// TODO: Verify appropriate lock level.
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.PrepareProposal(req)
+	return &res, nil
+}
+
+func (app *committingClient) ProcessProposalSync(req types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
+	// TODO: Verify appropriate lock level.
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.ProcessProposal(req)
 	return &res, nil
 }
 

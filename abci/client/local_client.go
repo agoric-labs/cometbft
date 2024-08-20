@@ -1,9 +1,9 @@
 package abcicli
 
 import (
-	types "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
+	types "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
 )
 
 var _ Client = (*localClient)(nil)
@@ -72,17 +72,6 @@ func (app *localClient) InfoAsync(req types.RequestInfo) *ReqRes {
 	return app.callback(
 		types.ToRequestInfo(req),
 		types.ToResponseInfo(res),
-	)
-}
-
-func (app *localClient) SetOptionAsync(req types.RequestSetOption) *ReqRes {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
-	res := app.Application.SetOption(req)
-	return app.callback(
-		types.ToRequestSetOption(req),
-		types.ToResponseSetOption(res),
 	)
 }
 
@@ -207,6 +196,28 @@ func (app *localClient) ApplySnapshotChunkAsync(req types.RequestApplySnapshotCh
 	)
 }
 
+func (app *localClient) PrepareProposalAsync(req types.RequestPrepareProposal) *ReqRes {
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.PrepareProposal(req)
+	return app.callback(
+		types.ToRequestPrepareProposal(req),
+		types.ToResponsePrepareProposal(res),
+	)
+}
+
+func (app *localClient) ProcessProposalAsync(req types.RequestProcessProposal) *ReqRes {
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.ProcessProposal(req)
+	return app.callback(
+		types.ToRequestProcessProposal(req),
+		types.ToResponseProcessProposal(res),
+	)
+}
+
 //-------------------------------------------------------
 
 func (app *localClient) FlushSync() error {
@@ -222,14 +233,6 @@ func (app *localClient) InfoSync(req types.RequestInfo) (*types.ResponseInfo, er
 	defer app.mtx.Unlock()
 
 	res := app.Application.Info(req)
-	return &res, nil
-}
-
-func (app *localClient) SetOptionSync(req types.RequestSetOption) (*types.ResponseSetOption, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
-
-	res := app.Application.SetOption(req)
 	return &res, nil
 }
 
@@ -320,6 +323,22 @@ func (app *localClient) ApplySnapshotChunkSync(
 	defer app.mtx.Unlock()
 
 	res := app.Application.ApplySnapshotChunk(req)
+	return &res, nil
+}
+
+func (app *localClient) PrepareProposalSync(req types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.PrepareProposal(req)
+	return &res, nil
+}
+
+func (app *localClient) ProcessProposalSync(req types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
+	app.mtx.Lock()
+	defer app.mtx.Unlock()
+
+	res := app.Application.ProcessProposal(req)
 	return &res, nil
 }
 

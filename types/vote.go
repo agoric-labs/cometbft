@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/crypto"
-	cmtbytes "github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/protoio"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/cometbft/cometbft/crypto"
+	cmtbytes "github.com/cometbft/cometbft/libs/bytes"
+	"github.com/cometbft/cometbft/libs/protoio"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 const (
@@ -218,6 +218,22 @@ func (vote *Vote) ToProto() *cmtproto.Vote {
 		ValidatorIndex:   vote.ValidatorIndex,
 		Signature:        vote.Signature,
 	}
+}
+
+func VotesToProto(votes []*Vote) []*cmtproto.Vote {
+	if votes == nil {
+		return nil
+	}
+
+	res := make([]*cmtproto.Vote, 0, len(votes))
+	for _, vote := range votes {
+		v := vote.ToProto()
+		// protobuf crashes when serializing "repeated" fields with nil elements
+		if v != nil {
+			res = append(res, v)
+		}
+	}
+	return res
 }
 
 // FromProto converts a proto generetad type to a handwritten type

@@ -1,7 +1,7 @@
 package core
 
 import (
-	rpc "github.com/tendermint/tendermint/rpc/jsonrpc/server"
+	rpc "github.com/cometbft/cometbft/rpc/jsonrpc/server"
 )
 
 // TODO: better system than "unsafe" prefix
@@ -24,10 +24,12 @@ var Routes = map[string]*rpc.RPCFunc{
 	"block_by_hash":        rpc.NewRPCFunc(BlockByHash, "hash", rpc.Cacheable()),
 	"block_results":        rpc.NewRPCFunc(BlockResults, "height", rpc.Cacheable("height")),
 	"commit":               rpc.NewRPCFunc(Commit, "height", rpc.Cacheable("height")),
+	"header":               rpc.NewRPCFunc(Header, "height", rpc.Cacheable("height")),
+	"header_by_hash":       rpc.NewRPCFunc(HeaderByHash, "hash", rpc.Cacheable()),
 	"check_tx":             rpc.NewRPCFunc(CheckTx, "tx"),
 	"tx":                   rpc.NewRPCFunc(Tx, "hash,prove", rpc.Cacheable()),
-	"tx_search":            rpc.NewRPCFunc(TxSearchMatchEvents, "query,prove,page,per_page,order_by,match_events"),
-	"block_search":         rpc.NewRPCFunc(BlockSearchMatchEvents, "query,page,per_page,order_by,match_events"),
+	"tx_search":            rpc.NewRPCFunc(TxSearch, "query,prove,page,per_page,order_by"),
+	"block_search":         rpc.NewRPCFunc(BlockSearch, "query,page,per_page,order_by"),
 	"validators":           rpc.NewRPCFunc(Validators, "height,page,per_page", rpc.Cacheable("height")),
 	"dump_consensus_state": rpc.NewRPCFunc(DumpConsensusState, ""),
 	"consensus_state":      rpc.NewRPCFunc(ConsensusState, ""),

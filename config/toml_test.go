@@ -67,7 +67,7 @@ func checkConfig(configFile string) bool {
 	var valid bool
 
 	// list of words we expect in the config
-	elems := []string{
+	var elems = []string{
 		"moniker",
 		"seeds",
 		"proxy_app",

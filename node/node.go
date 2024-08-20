@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,43 +16,42 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	bcv0 "github.com/tendermint/tendermint/blockchain/v0"
-	bcv1 "github.com/tendermint/tendermint/blockchain/v1"
-	bcv2 "github.com/tendermint/tendermint/blockchain/v2"
-	cfg "github.com/tendermint/tendermint/config"
-	cs "github.com/tendermint/tendermint/consensus"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/evidence"
+	abci "github.com/cometbft/cometbft/abci/types"
+	bc "github.com/cometbft/cometbft/blocksync"
+	cfg "github.com/cometbft/cometbft/config"
+	cs "github.com/cometbft/cometbft/consensus"
+	"github.com/cometbft/cometbft/crypto"
+	"github.com/cometbft/cometbft/evidence"
+	"github.com/cometbft/cometbft/light"
 
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtpubsub "github.com/tendermint/tendermint/libs/pubsub"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/light"
-	mempl "github.com/tendermint/tendermint/mempool"
-	mempoolv0 "github.com/tendermint/tendermint/mempool/v0"
-	mempoolv1 "github.com/tendermint/tendermint/mempool/v1"
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/p2p/pex"
-	"github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/proxy"
-	rpccore "github.com/tendermint/tendermint/rpc/core"
-	grpccore "github.com/tendermint/tendermint/rpc/grpc"
-	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
-	sm "github.com/tendermint/tendermint/state"
-	"github.com/tendermint/tendermint/state/indexer"
-	blockidxkv "github.com/tendermint/tendermint/state/indexer/block/kv"
-	blockidxnull "github.com/tendermint/tendermint/state/indexer/block/null"
-	"github.com/tendermint/tendermint/state/indexer/sink/psql"
-	"github.com/tendermint/tendermint/state/txindex"
-	"github.com/tendermint/tendermint/state/txindex/kv"
-	"github.com/tendermint/tendermint/state/txindex/null"
-	"github.com/tendermint/tendermint/statesync"
-	"github.com/tendermint/tendermint/store"
-	"github.com/tendermint/tendermint/types"
-	cmttime "github.com/tendermint/tendermint/types/time"
-	"github.com/tendermint/tendermint/version"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
+	"github.com/cometbft/cometbft/libs/service"
+
+	mempl "github.com/cometbft/cometbft/mempool"
+	mempoolv0 "github.com/cometbft/cometbft/mempool/v0"
+	mempoolv1 "github.com/cometbft/cometbft/mempool/v1" //nolint:staticcheck // SA1019 Priority mempool deprecated but still supported in this release.
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/p2p/pex"
+	"github.com/cometbft/cometbft/privval"
+	"github.com/cometbft/cometbft/proxy"
+	rpccore "github.com/cometbft/cometbft/rpc/core"
+	grpccore "github.com/cometbft/cometbft/rpc/grpc"
+	rpcserver "github.com/cometbft/cometbft/rpc/jsonrpc/server"
+	sm "github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/state/indexer"
+	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
+	blockidxnull "github.com/cometbft/cometbft/state/indexer/block/null"
+	"github.com/cometbft/cometbft/state/indexer/sink/psql"
+	"github.com/cometbft/cometbft/state/txindex"
+	"github.com/cometbft/cometbft/state/txindex/kv"
+	"github.com/cometbft/cometbft/state/txindex/null"
+	"github.com/cometbft/cometbft/statesync"
+	"github.com/cometbft/cometbft/store"
+	"github.com/cometbft/cometbft/types"
+	cmttime "github.com/cometbft/cometbft/types/time"
+	"github.com/cometbft/cometbft/version"
 
 	_ "net/http/pprof" //nolint: gosec // securely exposed on separate, optional port
 
@@ -115,29 +115,30 @@ func DefaultNewNode(config *cfg.Config, logger log.Logger) (*Node, error) {
 }
 
 // MetricsProvider returns a consensus, p2p and mempool Metrics.
-type MetricsProvider func(chainID string) (*cs.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics)
+type MetricsProvider func(chainID string) (*cs.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics)
 
 // DefaultMetricsProvider returns Metrics build using Prometheus client library
 // if Prometheus is enabled. Otherwise, it returns no-op Metrics.
 func DefaultMetricsProvider(config *cfg.InstrumentationConfig) MetricsProvider {
-	return func(chainID string) (*cs.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics) {
+	return func(chainID string) (*cs.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics) {
 		if config.Prometheus {
 			return cs.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				p2p.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				mempl.PrometheusMetrics(config.Namespace, "chain_id", chainID),
-				sm.PrometheusMetrics(config.Namespace, "chain_id", chainID)
+				sm.PrometheusMetrics(config.Namespace, "chain_id", chainID),
+				proxy.PrometheusMetrics(config.Namespace, "chain_id", chainID)
 		}
-		return cs.NopMetrics(), p2p.NopMetrics(), mempl.NopMetrics(), sm.NopMetrics()
+		return cs.NopMetrics(), p2p.NopMetrics(), mempl.NopMetrics(), sm.NopMetrics(), proxy.NopMetrics()
 	}
 }
 
 // Option sets a parameter for the node.
 type Option func(*Node)
 
-// Temporary interface for switching to fast sync, we should get rid of v0 and v1 reactors.
+// Temporary interface for switching to block sync, we should get rid of v0 and v1 reactors.
 // See: https://github.com/tendermint/tendermint/issues/4595
-type fastSyncReactor interface {
-	SwitchToFastSync(sm.State) error
+type blockSyncReactor interface {
+	SwitchToBlockSync(sm.State) error
 }
 
 // CustomReactors allows you to add custom reactors (name -> p2p.Reactor) to
@@ -189,6 +190,124 @@ func StateProvider(stateProvider statesync.StateProvider) Option {
 	}
 }
 
+// BootstrapState synchronizes the stores with the application after state sync
+// has been performed offline. It is expected that the block store and state
+// store are empty at the time the function is called.
+//
+// If the block store is not empty, the function returns an error.
+func BootstrapState(ctx context.Context, config *cfg.Config, dbProvider DBProvider, height uint64, appHash []byte) (err error) {
+	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if config == nil {
+		logger.Info("no config provided, using default configuration")
+		config = cfg.DefaultConfig()
+	}
+
+	if dbProvider == nil {
+		dbProvider = DefaultDBProvider
+	}
+	blockStore, stateDB, err := initDBs(config, dbProvider)
+
+	defer func() {
+		if derr := blockStore.Close(); derr != nil {
+			logger.Error("Failed to close blockstore", "err", derr)
+			// Set the return value
+			err = derr
+		}
+	}()
+
+	if err != nil {
+		return err
+	}
+
+	if !blockStore.IsEmpty() {
+		return fmt.Errorf("blockstore not empty, trying to initialize non empty state")
+	}
+
+	stateStore := sm.NewBootstrapStore(stateDB, sm.StoreOptions{
+		DiscardABCIResponses: config.Storage.DiscardABCIResponses,
+	})
+
+	defer func() {
+		if derr := stateStore.Close(); derr != nil {
+			logger.Error("Failed to close statestore", "err", derr)
+			// Set the return value
+			err = derr
+		}
+	}()
+	state, err := stateStore.Load()
+	if err != nil {
+		return err
+	}
+
+	if !state.IsEmpty() {
+		return fmt.Errorf("state not empty, trying to initialize non empty state")
+	}
+
+	genState, _, err := LoadStateFromDBOrGenesisDocProvider(stateDB, DefaultGenesisDocProviderFunc(config))
+	if err != nil {
+		return err
+	}
+
+	stateProvider, err := statesync.NewLightClientStateProvider(
+		ctx,
+		genState.ChainID, genState.Version, genState.InitialHeight,
+		config.StateSync.RPCServers, light.TrustOptions{
+			Period: config.StateSync.TrustPeriod,
+			Height: config.StateSync.TrustHeight,
+			Hash:   config.StateSync.TrustHashBytes(),
+		}, logger.With("module", "light"))
+	if err != nil {
+		return fmt.Errorf("failed to set up light client state provider: %w", err)
+	}
+
+	state, err = stateProvider.State(ctx, height)
+	if err != nil {
+		return err
+	}
+	if appHash == nil {
+		logger.Info("warning: cannot verify appHash. Verification will happen when node boots up!")
+	} else {
+		if !bytes.Equal(appHash, state.AppHash) {
+			if err := blockStore.Close(); err != nil {
+				logger.Error("failed to close blockstore: %w", err)
+			}
+			if err := stateStore.Close(); err != nil {
+				logger.Error("failed to close statestore: %w", err)
+			}
+			return fmt.Errorf("the app hash returned by the light client does not match the provided appHash, expected %X, got %X", state.AppHash, appHash)
+		}
+	}
+
+	commit, err := stateProvider.Commit(ctx, height)
+	if err != nil {
+		return err
+	}
+
+	if err = stateStore.Bootstrap(state); err != nil {
+		return err
+	}
+
+	err = blockStore.SaveSeenCommit(state.LastBlockHeight, commit)
+	if err != nil {
+		return err
+	}
+
+	// Once the stores are bootstrapped, we need to set the height at which the node has finished
+	// statesyncing. This will allow the blocksync reactor to fetch blocks at a proper height.
+	// In case this operation fails, it is equivalent to a failure in  online state sync where the operator
+	// needs to manually delete the state and blockstores and rerun the bootstrapping process.
+	err = stateStore.SetOfflineStateSyncHeight(state.LastBlockHeight)
+	if err != nil {
+		return fmt.Errorf("failed to set synced height: %w", err)
+	}
+
+	return err
+}
+
 //------------------------------------------------------------------------------
 
 // Node is the highest level interface to a full CometBFT node.
@@ -213,7 +332,7 @@ type Node struct {
 	eventBus          *types.EventBus // pub/sub for services
 	stateStore        sm.Store
 	blockStore        *store.BlockStore // store the blockchain to disk
-	bcReactor         p2p.Reactor       // for fast-syncing
+	bcReactor         p2p.Reactor       // for block-syncing
 	mempoolReactor    p2p.Reactor       // for gossipping transactions
 	mempool           mempl.Mempool
 	stateSync         bool                    // whether the node should state sync on startup
@@ -248,8 +367,8 @@ func initDBs(config *cfg.Config, dbProvider DBProvider) (blockStore *store.Block
 	return
 }
 
-func createAndStartProxyAppConns(clientCreator proxy.ClientCreator, logger log.Logger) (proxy.AppConns, error) {
-	proxyApp := proxy.NewAppConns(clientCreator)
+func createAndStartProxyAppConns(clientCreator proxy.ClientCreator, logger log.Logger, metrics *proxy.Metrics) (proxy.AppConns, error) {
+	proxyApp := proxy.NewAppConns(clientCreator, metrics)
 	proxyApp.SetLogger(logger.With("module", "proxy"))
 	if err := proxyApp.Start(); err != nil {
 		return nil, fmt.Errorf("error starting proxy app connections: %v", err)
@@ -336,7 +455,7 @@ func doHandshake(
 func logNodeStartupInfo(state sm.State, pubKey crypto.PubKey, logger, consensusLogger log.Logger) {
 	// Log the version info.
 	logger.Info("Version info",
-		"cmtbft_version", version.TMCoreSemVer,
+		"tendermint_version", version.TMCoreSemVer,
 		"abci", version.ABCISemVer,
 		"block", version.BlockProtocol,
 		"p2p", version.P2PProtocol,
@@ -375,52 +494,62 @@ func createMempoolAndMempoolReactor(
 	memplMetrics *mempl.Metrics,
 	logger log.Logger,
 ) (mempl.Mempool, p2p.Reactor) {
-	switch config.Mempool.Version {
-	case cfg.MempoolV1:
-		mp := mempoolv1.NewTxMempool(
-			logger,
-			config.Mempool,
-			proxyApp.Mempool(),
-			state.LastBlockHeight,
-			mempoolv1.WithMetrics(memplMetrics),
-			mempoolv1.WithPreCheck(sm.TxPreCheck(state)),
-			mempoolv1.WithPostCheck(sm.TxPostCheck(state)),
-		)
+	switch config.Mempool.Type {
+	// allow empty string for backward compatibility
+	case cfg.MempoolTypeFlood, "":
+		switch config.Mempool.Version {
+		case cfg.MempoolV1:
+			mp := mempoolv1.NewTxMempool(
+				logger,
+				config.Mempool,
+				proxyApp.Mempool(),
+				state.LastBlockHeight,
+				mempoolv1.WithMetrics(memplMetrics),
+				mempoolv1.WithPreCheck(sm.TxPreCheck(state)),
+				mempoolv1.WithPostCheck(sm.TxPostCheck(state)),
+			)
 
-		reactor := mempoolv1.NewReactor(
-			config.Mempool,
-			mp,
-		)
-		if config.Consensus.WaitForTxs() {
-			mp.EnableTxsAvailable()
+			reactor := mempoolv1.NewReactor(
+				config.Mempool,
+				mp,
+			)
+			if config.Consensus.WaitForTxs() {
+				mp.EnableTxsAvailable()
+			}
+
+			return mp, reactor
+
+		case cfg.MempoolV0:
+			mp := mempoolv0.NewCListMempool(
+				config.Mempool,
+				proxyApp.Mempool(),
+				state.LastBlockHeight,
+				mempoolv0.WithMetrics(memplMetrics),
+				mempoolv0.WithPreCheck(sm.TxPreCheck(state)),
+				mempoolv0.WithPostCheck(sm.TxPostCheck(state)),
+			)
+
+			mp.SetLogger(logger)
+
+			reactor := mempoolv0.NewReactor(
+				config.Mempool,
+				mp,
+			)
+			if config.Consensus.WaitForTxs() {
+				mp.EnableTxsAvailable()
+			}
+
+			return mp, reactor
+
+		default:
+			return nil, nil
 		}
-
-		return mp, reactor
-
-	case cfg.MempoolV0:
-		mp := mempoolv0.NewCListMempool(
-			config.Mempool,
-			proxyApp.Mempool(),
-			state.LastBlockHeight,
-			mempoolv0.WithMetrics(memplMetrics),
-			mempoolv0.WithPreCheck(sm.TxPreCheck(state)),
-			mempoolv0.WithPostCheck(sm.TxPostCheck(state)),
-		)
-
-		mp.SetLogger(logger)
-
-		reactor := mempoolv0.NewReactor(
-			config.Mempool,
-			mp,
-		)
-		if config.Consensus.WaitForTxs() {
-			mp.EnableTxsAvailable()
-		}
-
-		return mp, reactor
-
+	case cfg.MempoolTypeNop:
+		// Strictly speaking, there's no need to have a `mempl.NopMempoolReactor`, but
+		// adding it leads to a cleaner code.
+		return &mempl.NopMempool{}, mempl.NewNopMempoolReactor()
 	default:
-		return nil, nil
+		panic(fmt.Sprintf("unknown mempool type: %q", config.Mempool.Type))
 	}
 }
 
@@ -447,18 +576,17 @@ func createBlockchainReactor(config *cfg.Config,
 	state sm.State,
 	blockExec *sm.BlockExecutor,
 	blockStore *store.BlockStore,
-	fastSync bool,
+	blockSync bool,
 	logger log.Logger,
+	offlineStateSyncHeight int64,
 ) (bcReactor p2p.Reactor, err error) {
-	switch config.FastSync.Version {
+	switch config.BlockSync.Version {
 	case "v0":
-		bcReactor = bcv0.NewBlockchainReactor(state.Copy(), blockExec, blockStore, fastSync)
-	case "v1":
-		bcReactor = bcv1.NewBlockchainReactor(state.Copy(), blockExec, blockStore, fastSync)
-	case "v2":
-		bcReactor = bcv2.NewBlockchainReactor(state.Copy(), blockExec, blockStore, fastSync)
+		bcReactor = bc.NewReactorWithOfflineStateSync(state.Copy(), blockExec, blockStore, blockSync, offlineStateSyncHeight)
+	case "v1", "v2":
+		return nil, fmt.Errorf("block sync version %s has been deprecated. Please use v0", config.BlockSync.Version)
 	default:
-		return nil, fmt.Errorf("unknown fastsync version %s", config.FastSync.Version)
+		return nil, fmt.Errorf("unknown block sync version %s", config.BlockSync.Version)
 	}
 
 	bcReactor.SetLogger(logger.With("module", "blockchain"))
@@ -587,7 +715,9 @@ func createSwitch(config *cfg.Config,
 		p2p.SwitchPeerFilters(peerFilters...),
 	)
 	sw.SetLogger(p2pLogger)
-	sw.AddReactor("MEMPOOL", mempoolReactor)
+	if config.Mempool.Type != cfg.MempoolTypeNop {
+		sw.AddReactor("MEMPOOL", mempoolReactor)
+	}
 	sw.AddReactor("BLOCKCHAIN", bcReactor)
 	sw.AddReactor("CONSENSUS", consensusReactor)
 	sw.AddReactor("EVIDENCE", evidenceReactor)
@@ -648,9 +778,9 @@ func createPEXReactorAndAddToSwitch(addrBook pex.AddrBook, config *cfg.Config,
 	return pexReactor
 }
 
-// startStateSync starts an asynchronous state sync process, then switches to fast sync mode.
-func startStateSync(ssR *statesync.Reactor, bcR fastSyncReactor, conR *cs.Reactor,
-	stateProvider statesync.StateProvider, config *cfg.StateSyncConfig, fastSync bool,
+// startStateSync starts an asynchronous state sync process, then switches to block sync mode.
+func startStateSync(ssR *statesync.Reactor, bcR blockSyncReactor, conR *cs.Reactor,
+	stateProvider statesync.StateProvider, config *cfg.StateSyncConfig, blockSync bool,
 	stateStore sm.Store, blockStore *store.BlockStore, state sm.State,
 ) error {
 	ssR.Logger.Info("Starting state sync")
@@ -689,13 +819,13 @@ func startStateSync(ssR *statesync.Reactor, bcR fastSyncReactor, conR *cs.Reacto
 			return
 		}
 
-		if fastSync {
+		if blockSync {
 			// FIXME Very ugly to have these metrics bleed through here.
 			conR.Metrics.StateSyncing.Set(0)
-			conR.Metrics.FastSyncing.Set(1)
-			err = bcR.SwitchToFastSync(state)
+			conR.Metrics.BlockSyncing.Set(1)
+			err = bcR.SwitchToBlockSync(state)
 			if err != nil {
-				ssR.Logger.Error("Failed to switch to fast sync", "err", err)
+				ssR.Logger.Error("Failed to switch to block sync", "err", err)
 				return
 			}
 		} else {
@@ -721,7 +851,6 @@ func NewNode(config *cfg.Config,
 		metricsProvider, logger, options...)
 }
 
-// NewNodeWithContext is cancellable version of NewNode.
 func NewNodeWithContext(ctx context.Context,
 	config *cfg.Config,
 	privValidator types.PrivValidator,
@@ -733,12 +862,13 @@ func NewNodeWithContext(ctx context.Context,
 	logger log.Logger,
 	options ...Option,
 ) (*Node, error) {
+
 	blockStore, stateDB, err := initDBs(config, dbProvider)
 	if err != nil {
 		return nil, err
 	}
 
-	stateStore := sm.NewStore(stateDB, sm.StoreOptions{
+	stateStore := sm.NewBootstrapStore(stateDB, sm.StoreOptions{
 		DiscardABCIResponses: config.Storage.DiscardABCIResponses,
 	})
 
@@ -747,8 +877,10 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
+	csMetrics, p2pMetrics, memplMetrics, smMetrics, abciMetrics := metricsProvider(genDoc.ChainID)
+
 	// Create the proxyApp and establish connections to the ABCI app (consensus, mempool, query).
-	proxyApp, err := createAndStartProxyAppConns(clientCreator, logger)
+	proxyApp, err := createAndStartProxyAppConns(clientCreator, logger, abciMetrics)
 	if err != nil {
 		return nil, err
 	}
@@ -807,19 +939,16 @@ func NewNodeWithContext(ctx context.Context,
 		}
 	}
 
-	// Determine whether we should do fast sync. This must happen after the handshake, since the
+	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
-	fastSync := config.FastSyncMode && !onlyValidatorIsUs(state, pubKey)
+	blockSync := config.BlockSyncMode && !onlyValidatorIsUs(state, pubKey)
 
 	logNodeStartupInfo(state, pubKey, logger, consensusLogger)
 
-	csMetrics, p2pMetrics, memplMetrics, smMetrics := metricsProvider(genDoc.ChainID)
-
-	// Make MempoolReactor
 	mempool, mempoolReactor := createMempoolAndMempoolReactor(config, proxyApp, state, memplMetrics, logger)
 
-	// Make Evidence Reactor
 	evidenceReactor, evidencePool, err := createEvidenceReactor(config, dbProvider, stateDB, blockStore, logger)
+
 	if err != nil {
 		return nil, err
 	}
@@ -833,27 +962,38 @@ func NewNodeWithContext(ctx context.Context,
 		evidencePool,
 		sm.BlockExecutorWithMetrics(smMetrics),
 	)
-
-	// Make BlockchainReactor. Don't start fast sync if we're doing a state sync first.
-	bcReactor, err := createBlockchainReactor(config, state, blockExec, blockStore, fastSync && !stateSync, logger)
+	offlineStateSyncHeight := int64(0)
+	if blockStore.Height() == 0 {
+		offlineStateSyncHeight, err = stateStore.GetOfflineStateSyncHeight()
+		if err != nil && err.Error() != "value empty" {
+			panic(fmt.Sprintf("failed to retrieve statesynced height from store %s; expected state store height to be %v", err, state.LastBlockHeight))
+		}
+	}
+	// Make BlockchainReactor. Don't start block sync if we're doing a state sync first.
+	bcReactor, err := createBlockchainReactor(config, state, blockExec, blockStore, blockSync && !stateSync, logger, offlineStateSyncHeight)
 	if err != nil {
 		return nil, fmt.Errorf("could not create blockchain reactor: %w", err)
 	}
 
-	// Make ConsensusReactor. Don't enable fully if doing a state sync and/or fast sync first.
+	// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
 	// FIXME We need to update metrics here, since other reactors don't have access to them.
 	if stateSync {
 		csMetrics.StateSyncing.Set(1)
-	} else if fastSync {
-		csMetrics.FastSyncing.Set(1)
+	} else if blockSync {
+		csMetrics.BlockSyncing.Set(1)
 	}
+
 	consensusReactor, consensusState := createConsensusReactor(
 		config, state, blockExec, blockStore, mempool, evidencePool,
-		privValidator, csMetrics, stateSync || fastSync, eventBus, consensusLogger,
+		privValidator, csMetrics, stateSync || blockSync, eventBus, consensusLogger,
 	)
+	err = stateStore.SetOfflineStateSyncHeight(0)
+	if err != nil {
+		panic(fmt.Sprintf("failed to reset the offline state sync height %s", err))
+	}
 
 	// Set up state sync reactor, and schedule a sync if requested.
-	// FIXME The way we do phased startups (e.g. replay -> fast sync -> consensus) is very messy,
+	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
 	stateSyncReactor := statesync.NewReactor(
@@ -869,10 +1009,8 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	// Setup Transport.
 	transport, peerFilters := createTransport(config, nodeInfo, nodeKey, proxyApp)
 
-	// Setup Switch.
 	p2pLogger := logger.With("module", "p2p")
 	sw := createSwitch(
 		config, transport, p2pMetrics, peerFilters, mempoolReactor, bcReactor,
@@ -1009,12 +1147,12 @@ func (n *Node) OnStart() error {
 
 	// Run state sync
 	if n.stateSync {
-		bcR, ok := n.bcReactor.(fastSyncReactor)
+		bcR, ok := n.bcReactor.(blockSyncReactor)
 		if !ok {
 			return fmt.Errorf("this blockchain reactor does not support switching from state sync")
 		}
 		err := startStateSync(n.stateSyncReactor, bcR, n.consensusReactor, n.stateSyncProvider,
-			n.config.StateSync, n.config.FastSyncMode, n.stateStore, n.blockStore, n.stateSyncGenesis)
+			n.config.StateSync, n.config.BlockSyncMode, n.stateStore, n.blockStore, n.stateSyncGenesis)
 		if err != nil {
 			return fmt.Errorf("failed to start state sync: %w", err)
 		}
@@ -1359,18 +1497,6 @@ func makeNodeInfo(
 		txIndexerStatus = "off"
 	}
 
-	var bcChannel byte
-	switch config.FastSync.Version {
-	case "v0":
-		bcChannel = bcv0.BlockchainChannel
-	case "v1":
-		bcChannel = bcv1.BlockchainChannel
-	case "v2":
-		bcChannel = bcv2.BlockchainChannel
-	default:
-		return p2p.DefaultNodeInfo{}, fmt.Errorf("unknown fastsync version %s", config.FastSync.Version)
-	}
-
 	nodeInfo := p2p.DefaultNodeInfo{
 		ProtocolVersion: p2p.NewProtocolVersion(
 			version.P2PProtocol, // global
@@ -1381,7 +1507,7 @@ func makeNodeInfo(
 		Network:       genDoc.ChainID,
 		Version:       version.TMCoreSemVer,
 		Channels: []byte{
-			bcChannel,
+			bc.BlocksyncChannel,
 			cs.StateChannel, cs.DataChannel, cs.VoteChannel, cs.VoteSetBitsChannel,
 			mempl.MempoolChannel,
 			evidence.EvidenceChannel,

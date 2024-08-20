@@ -1,8 +1,8 @@
 package proxy
 
 import (
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/version"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/version"
 )
 
 // RequestInfo contains all the information for sending
@@ -12,4 +12,5 @@ var RequestInfo = abci.RequestInfo{
 	Version:      version.TMCoreSemVer,
 	BlockVersion: version.BlockProtocol,
 	P2PVersion:   version.P2PProtocol,
+	AbciVersion:  version.ABCIVersion,
 }

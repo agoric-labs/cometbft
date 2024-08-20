@@ -3,10 +3,10 @@ package types
 import (
 	"fmt"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	cmtpubsub "github.com/tendermint/tendermint/libs/pubsub"
-	cmtquery "github.com/tendermint/tendermint/libs/pubsub/query"
+	abci "github.com/cometbft/cometbft/abci/types"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
+	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
 )
 
 // Reserved event types (alphabetically sorted).
@@ -140,11 +140,6 @@ const (
 	// BlockHeightKey is a reserved key used for indexing BeginBlock and Endblock
 	// events.
 	BlockHeightKey = "block.height"
-
-	// MatchEventsKey is a reserved key used to indicate to the indexer that the
-	// conditions in the query have to have occurred both on the same height
-	// as well as in the same event
-	MatchEventKey = "match.events"
 )
 
 var (

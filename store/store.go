@@ -5,12 +5,12 @@ import (
 	"strconv"
 
 	dbm "github.com/cometbft/cometbft-db"
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	cmtstore "github.com/tendermint/tendermint/proto/tendermint/store"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 /*
@@ -54,6 +54,12 @@ func NewBlockStore(db dbm.DB) *BlockStore {
 	}
 }
 
+func (bs *BlockStore) IsEmpty() bool {
+	bs.mtx.RLock()
+	defer bs.mtx.RUnlock()
+	return bs.base == bs.height && bs.base == 0
+}
+
 // Base returns the first known contiguous block height, or 0 for empty block stores.
 func (bs *BlockStore) Base() int64 {
 	bs.mtx.RLock()
@@ -91,7 +97,7 @@ func (bs *BlockStore) LoadBaseMeta() *types.BlockMeta {
 // LoadBlock returns the block with the given height.
 // If no block is found for that height, it returns nil.
 func (bs *BlockStore) LoadBlock(height int64) *types.Block {
-	var blockMeta = bs.LoadBlockMeta(height)
+	blockMeta := bs.LoadBlockMeta(height)
 	if blockMeta == nil {
 		return nil
 	}
@@ -136,7 +142,6 @@ func (bs *BlockStore) LoadBlockByHash(hash []byte) *types.Block {
 
 	s := string(bz)
 	height, err := strconv.ParseInt(s, 10, 64)
-
 	if err != nil {
 		panic(fmt.Sprintf("failed to extract height from %s: %v", s, err))
 	}
@@ -147,7 +152,7 @@ func (bs *BlockStore) LoadBlockByHash(hash []byte) *types.Block {
 // from the block at the given height.
 // If no part is found for the given height and index, it returns nil.
 func (bs *BlockStore) LoadBlockPart(height int64, index int) *types.Part {
-	var pbpart = new(cmtproto.Part)
+	pbpart := new(cmtproto.Part)
 
 	bz, err := bs.db.Get(calcBlockPartKey(height, index))
 	if err != nil {
@@ -172,9 +177,8 @@ func (bs *BlockStore) LoadBlockPart(height int64, index int) *types.Part {
 // LoadBlockMeta returns the BlockMeta for the given height.
 // If no block is found for the given height, it returns nil.
 func (bs *BlockStore) LoadBlockMeta(height int64) *types.BlockMeta {
-	var pbbm = new(cmtproto.BlockMeta)
+	pbbm := new(cmtproto.BlockMeta)
 	bz, err := bs.db.Get(calcBlockMetaKey(height))
-
 	if err != nil {
 		panic(err)
 	}
@@ -196,12 +200,31 @@ func (bs *BlockStore) LoadBlockMeta(height int64) *types.BlockMeta {
 	return blockMeta
 }
 
+// LoadBlockMetaByHash returns the blockmeta who's header corresponds to the given
+// hash. If none is found, returns nil.
+func (bs *BlockStore) LoadBlockMetaByHash(hash []byte) *types.BlockMeta {
+	bz, err := bs.db.Get(calcBlockHashKey(hash))
+	if err != nil {
+		panic(err)
+	}
+	if len(bz) == 0 {
+		return nil
+	}
+
+	s := string(bz)
+	height, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		panic(fmt.Sprintf("failed to extract height from %s: %v", s, err))
+	}
+	return bs.LoadBlockMeta(height)
+}
+
 // LoadBlockCommit returns the Commit for the given height.
 // This commit consists of the +2/3 and other Precommit-votes for block at `height`,
 // and it comes from the block.LastCommit for `height+1`.
 // If no commit is found for the given height, it returns nil.
 func (bs *BlockStore) LoadBlockCommit(height int64) *types.Commit {
-	var pbc = new(cmtproto.Commit)
+	pbc := new(cmtproto.Commit)
 	bz, err := bs.db.Get(calcBlockCommitKey(height))
 	if err != nil {
 		panic(err)
@@ -224,7 +247,7 @@ func (bs *BlockStore) LoadBlockCommit(height int64) *types.Commit {
 // This is useful when we've seen a commit, but there has not yet been
 // a new block at `height + 1` that includes this commit in its block.LastCommit.
 func (bs *BlockStore) LoadSeenCommit(height int64) *types.Commit {
-	var pbc = new(cmtproto.Commit)
+	pbc := new(cmtproto.Commit)
 	bz, err := bs.db.Get(calcSeenCommitKey(height))
 	if err != nil {
 		panic(err)
@@ -500,4 +523,51 @@ func mustEncode(pb proto.Message) []byte {
 		panic(fmt.Errorf("unable to marshal: %w", err))
 	}
 	return bz
+}
+
+//-----------------------------------------------------------------------------
+
+// DeleteLatestBlock removes the block pointed to by height,
+// lowering height by one.
+func (bs *BlockStore) DeleteLatestBlock() error {
+	bs.mtx.RLock()
+	targetHeight := bs.height
+	bs.mtx.RUnlock()
+
+	batch := bs.db.NewBatch()
+	defer batch.Close()
+
+	// delete what we can, skipping what's already missing, to ensure partial
+	// blocks get deleted fully.
+	if meta := bs.LoadBlockMeta(targetHeight); meta != nil {
+		if err := batch.Delete(calcBlockHashKey(meta.BlockID.Hash)); err != nil {
+			return err
+		}
+		for p := 0; p < int(meta.BlockID.PartSetHeader.Total); p++ {
+			if err := batch.Delete(calcBlockPartKey(targetHeight, p)); err != nil {
+				return err
+			}
+		}
+	}
+	if err := batch.Delete(calcBlockCommitKey(targetHeight)); err != nil {
+		return err
+	}
+	if err := batch.Delete(calcSeenCommitKey(targetHeight)); err != nil {
+		return err
+	}
+	// delete last, so as to not leave keys built on meta.BlockID dangling
+	if err := batch.Delete(calcBlockMetaKey(targetHeight)); err != nil {
+		return err
+	}
+
+	bs.mtx.Lock()
+	bs.height = targetHeight - 1
+	bs.mtx.Unlock()
+	bs.saveState()
+
+	err := batch.WriteSync()
+	if err != nil {
+		return fmt.Errorf("failed to delete height %v: %w", targetHeight, err)
+	}
+	return nil
 }

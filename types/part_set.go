@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/libs/bits"
-	cmtbytes "github.com/tendermint/tendermint/libs/bytes"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/cometbft/cometbft/crypto/merkle"
+	"github.com/cometbft/cometbft/libs/bits"
+	cmtbytes "github.com/cometbft/cometbft/libs/bytes"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 var (
 	ErrPartSetUnexpectedIndex = errors.New("error part set unexpected index")
 	ErrPartSetInvalidProof    = errors.New("error part set invalid proof")
+	ErrPartTooBig             = errors.New("error part size too big")
+	ErrPartInvalidSize        = errors.New("error inner part with invalid size")
 )
 
 type Part struct {
@@ -29,7 +31,11 @@ type Part struct {
 // ValidateBasic performs basic validation.
 func (part *Part) ValidateBasic() error {
 	if len(part.Bytes) > int(BlockPartSizeBytes) {
-		return fmt.Errorf("too big: %d bytes, max: %d", len(part.Bytes), BlockPartSizeBytes)
+		return ErrPartTooBig
+	}
+	// All parts except the last one should have the same constant size.
+	if int64(part.Index) < part.Proof.Total-1 && len(part.Bytes) != int(BlockPartSizeBytes) {
+		return ErrPartInvalidSize
 	}
 	if err := part.Proof.ValidateBasic(); err != nil {
 		return fmt.Errorf("wrong Proof: %w", err)
@@ -278,6 +284,11 @@ func (ps *PartSet) AddPart(part *Part) (bool, error) {
 	// If part already exists, return false.
 	if ps.parts[part.Index] != nil {
 		return false, nil
+	}
+
+	// The proof should be compatible with the number of parts.
+	if part.Proof.Total != int64(ps.total) {
+		return false, ErrPartSetInvalidProof
 	}
 
 	// Check hash proof

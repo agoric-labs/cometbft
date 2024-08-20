@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	cryptoenc "github.com/tendermint/tendermint/crypto/encoding"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/crypto"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	cryptoenc "github.com/cometbft/cometbft/crypto/encoding"
 )
 
 func TestABCIPubKey(t *testing.T) {
@@ -50,14 +50,6 @@ func TestABCIValidators(t *testing.T) {
 	tmVals, err = PB2TM.ValidatorUpdates([]abci.ValidatorUpdate{abciVal})
 	assert.Nil(t, err)
 	assert.Equal(t, tmValExpected, tmVals[0])
-}
-
-func TestABCIConsensusParams(t *testing.T) {
-	cp := DefaultConsensusParams()
-	abciCP := TM2PB.ConsensusParams(cp)
-	cp2 := UpdateConsensusParams(*cp, abciCP)
-
-	assert.Equal(t, *cp, cp2)
 }
 
 type pubKeyEddie struct{}

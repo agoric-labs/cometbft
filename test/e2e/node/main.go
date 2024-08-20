@@ -7,31 +7,28 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/viper"
 
-	"github.com/tendermint/tendermint/abci/server"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	cmtflags "github.com/tendermint/tendermint/libs/cli/flags"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/light"
-	lproxy "github.com/tendermint/tendermint/light/proxy"
-	lrpc "github.com/tendermint/tendermint/light/rpc"
-	dbs "github.com/tendermint/tendermint/light/store/db"
-	"github.com/tendermint/tendermint/node"
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/privval"
-	"github.com/tendermint/tendermint/proxy"
-	rpcserver "github.com/tendermint/tendermint/rpc/jsonrpc/server"
-	"github.com/tendermint/tendermint/test/e2e/app"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	mcs "github.com/tendermint/tendermint/test/maverick/consensus"
-	maverick "github.com/tendermint/tendermint/test/maverick/node"
+	"github.com/cometbft/cometbft/abci/server"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	cmtflags "github.com/cometbft/cometbft/libs/cli/flags"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtnet "github.com/cometbft/cometbft/libs/net"
+	"github.com/cometbft/cometbft/light"
+	lproxy "github.com/cometbft/cometbft/light/proxy"
+	lrpc "github.com/cometbft/cometbft/light/rpc"
+	dbs "github.com/cometbft/cometbft/light/store/db"
+	"github.com/cometbft/cometbft/node"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/privval"
+	"github.com/cometbft/cometbft/proxy"
+	rpcserver "github.com/cometbft/cometbft/rpc/jsonrpc/server"
+	"github.com/cometbft/cometbft/test/e2e/app"
+	e2e "github.com/cometbft/cometbft/test/e2e/pkg"
 )
 
 var logger = log.NewTMLogger(log.NewSyncWriter(os.Stdout))
@@ -75,14 +72,10 @@ func run(configFile string) error {
 	case "socket", "grpc":
 		err = startApp(cfg)
 	case "builtin":
-		if len(cfg.Misbehaviors) == 0 {
-			if cfg.Mode == string(e2e.ModeLight) {
-				err = startLightClient(cfg)
-			} else {
-				err = startNode(cfg)
-			}
+		if cfg.Mode == string(e2e.ModeLight) {
+			err = startLightClient(cfg)
 		} else {
-			err = startMaverick(cfg)
+			err = startNode(cfg)
 		}
 	default:
 		err = fmt.Errorf("invalid protocol %q", cfg.Protocol)
@@ -200,43 +193,6 @@ func startLightClient(cfg *Config) error {
 	}
 
 	return nil
-}
-
-// FIXME: Temporarily disconnected maverick until it is redesigned
-// startMaverick starts a Maverick node that runs the application directly. It assumes the CometBFT
-// configuration is in $CMTHOME/config/cometbft.toml.
-func startMaverick(cfg *Config) error {
-	app, err := app.NewApplication(cfg.App())
-	if err != nil {
-		return err
-	}
-
-	cmtcfg, logger, nodeKey, err := setupNode()
-	if err != nil {
-		return fmt.Errorf("failed to setup config: %w", err)
-	}
-
-	misbehaviors := make(map[int64]mcs.Misbehavior, len(cfg.Misbehaviors))
-	for heightString, misbehaviorString := range cfg.Misbehaviors {
-		height, _ := strconv.ParseInt(heightString, 10, 64)
-		misbehaviors[height] = mcs.MisbehaviorList[misbehaviorString]
-	}
-
-	n, err := maverick.NewNode(cmtcfg,
-		maverick.LoadOrGenFilePV(cmtcfg.PrivValidatorKeyFile(), cmtcfg.PrivValidatorStateFile()),
-		nodeKey,
-		proxy.NewLocalClientCreator(app),
-		maverick.DefaultGenesisDocProviderFunc(cmtcfg),
-		maverick.DefaultDBProvider,
-		maverick.DefaultMetricsProvider(cmtcfg.Instrumentation),
-		logger,
-		misbehaviors,
-	)
-	if err != nil {
-		return err
-	}
-
-	return n.Start()
 }
 
 // startSigner starts a signer server connecting to the given endpoint.

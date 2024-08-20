@@ -8,18 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/p2p/mock"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/p2p/mock"
+	tmp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
-var cfg *config.P2PConfig
+var (
+	cfg *config.P2PConfig
+)
 
 func init() {
 	cfg = config.DefaultP2PConfig()
@@ -119,7 +121,7 @@ func TestPEXReactorRunning(t *testing.T) {
 	}
 }
 
-func TestPEXReactorReceive(t *testing.T) {
+func TestPEXReactorReceiveEnvelope(t *testing.T) {
 	r, book := createReactor(&ReactorConfig{})
 	defer teardownReactor(book)
 
@@ -222,10 +224,8 @@ func TestCheckSeeds(t *testing.T) {
 
 	// 4. test create peer with all seeds having unresolvable DNS fails
 	badPeerConfig := &ReactorConfig{
-		Seeds: []string{
-			"ed3dfd27bfc4af18f67a49862f04cc100696e84d@bad.network.addr:26657",
-			"d824b13cb5d40fa1d8a614e089357c7eff31b670@anotherbad.network.addr:26657",
-		},
+		Seeds: []string{"ed3dfd27bfc4af18f67a49862f04cc100696e84d@bad.network.addr:26657",
+			"d824b13cb5d40fa1d8a614e089357c7eff31b670@anotherbad.network.addr:26657"},
 	}
 	peerSwitch = testCreatePeerWithConfig(dir, 2, badPeerConfig)
 	require.Error(t, peerSwitch.Start())
@@ -233,11 +233,9 @@ func TestCheckSeeds(t *testing.T) {
 
 	// 5. test create peer with one good seed address succeeds
 	badPeerConfig = &ReactorConfig{
-		Seeds: []string{
-			"ed3dfd27bfc4af18f67a49862f04cc100696e84d@bad.network.addr:26657",
+		Seeds: []string{"ed3dfd27bfc4af18f67a49862f04cc100696e84d@bad.network.addr:26657",
 			"d824b13cb5d40fa1d8a614e089357c7eff31b670@anotherbad.network.addr:26657",
-			seed.NetAddress().String(),
-		},
+			seed.NetAddress().String()},
 	}
 	peerSwitch = testCreatePeerWithConfig(dir, 2, badPeerConfig)
 	require.Nil(t, peerSwitch.Start())
@@ -498,22 +496,6 @@ func TestPEXReactorDoesNotAddPrivatePeersToAddrBook(t *testing.T) {
 	assert.Equal(t, size, book.Size())
 }
 
-func TestLegacyReactorReceiveBasic(t *testing.T) {
-	pexR, _ := createReactor(&ReactorConfig{})
-	peer := p2p.CreateRandomPeer(false)
-
-	pexR.InitPeer(peer)
-	pexR.AddPeer(peer)
-	m := &tmp2p.PexAddrs{}
-	wm := m.Wrap()
-	msg, err := proto.Marshal(wm)
-	assert.NoError(t, err)
-
-	assert.NotPanics(t, func() {
-		pexR.Receive(PexChannel, peer, msg)
-	})
-}
-
 func TestPEXReactorDialPeer(t *testing.T) {
 	pexR, book := createReactor(&ReactorConfig{})
 	defer teardownReactor(book)
@@ -696,6 +678,7 @@ func createSwitchAndAddReactors(reactors ...p2p.Reactor) *p2p.Switch {
 }
 
 func TestPexVectors(t *testing.T) {
+
 	addr := tmp2p.NetAddress{
 		ID:   "1",
 		IP:   "127.0.0.1",

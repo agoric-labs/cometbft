@@ -8,11 +8,11 @@ import (
 	"strings"
 	"text/template"
 
-	cmtos "github.com/tendermint/tendermint/libs/os"
+	cmtos "github.com/cometbft/cometbft/libs/os"
 )
 
 // DefaultDirPerm is the default permissions used when creating directories.
-const DefaultDirPerm = 0o700
+const DefaultDirPerm = 0700
 
 var configTemplate *template.Template
 
@@ -63,7 +63,7 @@ func WriteConfigFile(configFilePath string, config *Config) {
 		panic(err)
 	}
 
-	cmtos.MustWriteFile(configFilePath, buffer.Bytes(), 0o644)
+	cmtos.MustWriteFile(configFilePath, buffer.Bytes(), 0644)
 }
 
 // Note: any changes to the comments/variables/mapstructure
@@ -87,10 +87,13 @@ proxy_app = "{{ .BaseConfig.ProxyApp }}"
 # A custom human readable name for this node
 moniker = "{{ .BaseConfig.Moniker }}"
 
-# If this node is many blocks behind the tip of the chain, FastSync
+# If this node is many blocks behind the tip of the chain, BlockSync
 # allows them to catchup quickly by downloading blocks in parallel
 # and verifying their commits
-fast_sync = {{ .BaseConfig.FastSyncMode }}
+#
+# Deprecated: this key will be removed and BlockSync will be enabled 
+# unconditionally in the next major release.
+block_sync = {{ .BaseConfig.BlockSyncMode }}
 
 # Database backend: goleveldb | cleveldb | boltdb | rocksdb | badgerdb
 # * goleveldb (github.com/syndtr/goleveldb - most popular implementation)
@@ -230,7 +233,7 @@ experimental_websocket_write_buffer_size = {{ .RPC.WebSocketWriteBufferSize }}
 #
 # Enabling this experimental parameter will cause the WebSocket connection to
 # be closed instead if it cannot read fast enough, allowing for greater
-# predictability in subscription behaviour.
+# predictability in subscription behavior.
 experimental_close_on_slow_client = {{ .RPC.CloseOnSlowClient }}
 
 # How long to wait for a tx to be committed during /broadcast_tx_commit.
@@ -271,11 +274,9 @@ pprof_laddr = "{{ .RPC.PprofListenAddress }}"
 # Address to listen for incoming connections
 laddr = "{{ .P2P.ListenAddress }}"
 
-# Address to advertise to peers for them to dial
-# If empty, will use the same port as the laddr,
-# and will introspect on the listener or use UPnP
-# to figure out the address. ip and port are required
-# example: 159.89.10.97:26656
+# Address to advertise to peers for them to dial. If empty, will use the same
+# port as the laddr, and will introspect on the listener to figure out the
+# address. IP and port are required. Example: 159.89.10.97:26656
 external_address = "{{ .P2P.ExternalAddress }}"
 
 # Comma separated list of seed nodes to connect to
@@ -283,9 +284,6 @@ seeds = "{{ .P2P.Seeds }}"
 
 # Comma separated list of nodes to keep persistent connections to
 persistent_peers = "{{ .P2P.PersistentPeers }}"
-
-# UPNP port forwarding
-upnp = {{ .P2P.UPNP }}
 
 # Path to address book
 addr_book_file = "{{ js .P2P.AddrBook }}"
@@ -344,14 +342,19 @@ dial_timeout = "{{ .P2P.DialTimeout }}"
 
 # Mempool version to use:
 #   1) "v0" - (default) FIFO mempool.
-#   2) "v1" - prioritized mempool.
+#   2) "v1" - prioritized mempool (deprecated; will be removed in the next release).
 version = "{{ .Mempool.Version }}"
 
-# Recheck (default: true) defines whether CometBFT should recheck the
-# validity for all remaining transaction in the mempool after a block.
-# Since a block affects the application state, some transactions in the
-# mempool may become invalid. If this does not apply to your application,
-# you can disable rechecking.
+# The type of mempool for this node to use.
+#
+#  Possible types:
+#  - "flood" : concurrent linked list mempool with flooding gossip protocol
+#  (default)
+#  - "nop"   : nop-mempool (short for no operation; the ABCI app is responsible
+#  for storing, disseminating and proposing txs). "create_empty_blocks=false" is
+#  not supported.
+type = "flood"
+
 recheck = {{ .Mempool.Recheck }}
 broadcast = {{ .Mempool.Broadcast }}
 wal_dir = "{{ js .Mempool.WalPath }}"
@@ -399,12 +402,13 @@ ttl-num-blocks = {{ .Mempool.TTLNumBlocks }}
 
 # Experimental parameters to limit gossiping txs to up to the specified number of peers.
 # This feature is only available for the default mempool (version config set to "v0").
-# We use two independent upper values for persistent peers and for non-persistent peers.
+# We use two independent upper values for persistent and non-persistent peers.
 # Unconditional peers are not affected by this feature.
 # If we are connected to more than the specified number of persistent peers, only send txs to
-# the first experimental_max_gossip_connections_to_persistent_peers of them. If one of those
-# persistent peers disconnects, activate another persistent peer. Similarly for non-persistent
-# peers, with an upper limit of experimental_max_gossip_connections_to_non_persistent_peers.
+# ExperimentalMaxGossipConnectionsToPersistentPeers of them. If one of those
+# persistent peers disconnects, activate another persistent peer.
+# Similarly for non-persistent peers, with an upper limit of
+# ExperimentalMaxGossipConnectionsToNonPersistentPeers.
 # If set to 0, the feature is disabled for the corresponding group of peers, that is, the
 # number of active connections to that group of peers is not bounded.
 # For non-persistent peers, if enabled, a value of 10 is recommended based on experimental
@@ -449,15 +453,17 @@ chunk_request_timeout = "{{ .StateSync.ChunkRequestTimeout }}"
 chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 
 #######################################################
-###       Fast Sync Configuration Connections       ###
+###       Block Sync Configuration Options          ###
 #######################################################
-[fastsync]
+[blocksync]
 
-# Fast Sync version to use:
-#   1) "v0" (default) - the legacy fast sync implementation
-#   2) "v1" - refactor of v0 version for better testability
-#   2) "v2" - complete redesign of v0, optimized for testability & readability
-version = "{{ .FastSync.Version }}"
+# Block Sync version to use:
+# 
+# In v0.37, v1 and v2 of the block sync protocols were deprecated.
+# Please use v0 instead.
+#
+#   1) "v0" - the default block sync implementation
+version = "{{ .BlockSync.Version }}"
 
 #######################################################
 ###         Consensus Configuration Options         ###
@@ -591,11 +597,11 @@ func ResetTestRootWithChainID(testName string, chainID string) *Config {
 			chainID = "cometbft_test"
 		}
 		testGenesis := fmt.Sprintf(testGenesisFmt, chainID)
-		cmtos.MustWriteFile(genesisFilePath, []byte(testGenesis), 0o644)
+		cmtos.MustWriteFile(genesisFilePath, []byte(testGenesis), 0644)
 	}
 	// we always overwrite the priv val
-	cmtos.MustWriteFile(privKeyFilePath, []byte(testPrivValidatorKey), 0o644)
-	cmtos.MustWriteFile(privStateFilePath, []byte(testPrivValidatorState), 0o644)
+	cmtos.MustWriteFile(privKeyFilePath, []byte(testPrivValidatorKey), 0644)
+	cmtos.MustWriteFile(privStateFilePath, []byte(testPrivValidatorState), 0644)
 
 	config := TestConfig().SetRoot(rootDir)
 	return config

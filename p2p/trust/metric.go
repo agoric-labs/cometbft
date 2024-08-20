@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
 )
 
 //---------------------------------------------------------------------------------------
@@ -28,7 +28,7 @@ type MetricHistoryJSON struct {
 }
 
 // Metric - keeps track of peer reliability
-// See cometbft/docs/architecture/adr-006-trust-metric.md for details
+// See tendermint/docs/architecture/adr-006-trust-metric.md for details
 type Metric struct {
 	service.BaseService
 

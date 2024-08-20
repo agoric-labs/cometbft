@@ -4,15 +4,17 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
+	"github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
 )
 
 const (
 	dialRetryIntervalSeconds = 3
 	echoRetryIntervalSeconds = 1
 )
+
+//go:generate ../../scripts/mockery_generate.sh Client
 
 // Client defines an interface for an ABCI client.
 // All `Async` methods return a `ReqRes` object.
@@ -28,34 +30,36 @@ type Client interface {
 	FlushAsync() *ReqRes
 	EchoAsync(msg string) *ReqRes
 	InfoAsync(types.RequestInfo) *ReqRes
-	SetOptionAsync(types.RequestSetOption) *ReqRes
 	DeliverTxAsync(types.RequestDeliverTx) *ReqRes
 	CheckTxAsync(types.RequestCheckTx) *ReqRes
 	QueryAsync(types.RequestQuery) *ReqRes
 	CommitAsync() *ReqRes
 	InitChainAsync(types.RequestInitChain) *ReqRes
+	PrepareProposalAsync(types.RequestPrepareProposal) *ReqRes
 	BeginBlockAsync(types.RequestBeginBlock) *ReqRes
 	EndBlockAsync(types.RequestEndBlock) *ReqRes
 	ListSnapshotsAsync(types.RequestListSnapshots) *ReqRes
 	OfferSnapshotAsync(types.RequestOfferSnapshot) *ReqRes
 	LoadSnapshotChunkAsync(types.RequestLoadSnapshotChunk) *ReqRes
 	ApplySnapshotChunkAsync(types.RequestApplySnapshotChunk) *ReqRes
+	ProcessProposalAsync(types.RequestProcessProposal) *ReqRes
 
 	FlushSync() error
 	EchoSync(msg string) (*types.ResponseEcho, error)
 	InfoSync(types.RequestInfo) (*types.ResponseInfo, error)
-	SetOptionSync(types.RequestSetOption) (*types.ResponseSetOption, error)
 	DeliverTxSync(types.RequestDeliverTx) (*types.ResponseDeliverTx, error)
 	CheckTxSync(types.RequestCheckTx) (*types.ResponseCheckTx, error)
 	QuerySync(types.RequestQuery) (*types.ResponseQuery, error)
 	CommitSync() (*types.ResponseCommit, error)
 	InitChainSync(types.RequestInitChain) (*types.ResponseInitChain, error)
+	PrepareProposalSync(types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error)
 	BeginBlockSync(types.RequestBeginBlock) (*types.ResponseBeginBlock, error)
 	EndBlockSync(types.RequestEndBlock) (*types.ResponseEndBlock, error)
 	ListSnapshotsSync(types.RequestListSnapshots) (*types.ResponseListSnapshots, error)
 	OfferSnapshotSync(types.RequestOfferSnapshot) (*types.ResponseOfferSnapshot, error)
 	LoadSnapshotChunkSync(types.RequestLoadSnapshotChunk) (*types.ResponseLoadSnapshotChunk, error)
 	ApplySnapshotChunkSync(types.RequestApplySnapshotChunk) (*types.ResponseApplySnapshotChunk, error)
+	ProcessProposalSync(types.RequestProcessProposal) (*types.ResponseProcessProposal, error)
 }
 
 //----------------------------------------

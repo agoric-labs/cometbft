@@ -1,0 +1,53 @@
+# Weekly run of the E2E testnet using the long-running manifest on main
+
+# !! Relevant changes to this file should be propagated to the e2e-nightly-<V>x
+# files for the supported backport branches, when appropriate, modulo version
+# markers.
+
+name: e2e-long-main
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 3'
+
+jobs:
+  e2e-long-test:
+# AGORIC: We don't maintain a v0.37.x branch.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - uses: actions/checkout@v4
+        with:
+          ref: 'v0.37.x'
+
+      - name: Build
+        working-directory: test/e2e
+        # Run make jobs in parallel, since we can't run steps in parallel.
+        run: make -j2 docker runner
+
+      - name: Run testnet
+        working-directory: test/e2e
+        run: ./run-multiple.sh networks/long.toml
+
+  e2e-long-fail:
+    needs: e2e-long-test
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+# AGORIC TODO: Update to slackapi/slack-github-action to match upstream cometbft
+# (requires replacing the SLACK_WEBHOOK secret with SLACK_WEBHOOK_URL)
+        uses: rtCamp/action-slack-notify@b24d75fe0e728a4bf9fc42ee217caa686d141ee8
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: ops-engineering
+          SLACK_USERNAME: CometBFT Tests
+          SLACK_ICON_EMOJI: ':skull:'
+          SLACK_COLOR: danger
+          SLACK_MESSAGE: "Weekly long-run E2E tests failed on main branch ${{ github.ref_name }}"
+          SLACK_FOOTER: ''

@@ -12,16 +12,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
-	flow "github.com/tendermint/tendermint/libs/flowrate"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	"github.com/tendermint/tendermint/libs/protoio"
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	"github.com/tendermint/tendermint/libs/timer"
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	flow "github.com/cometbft/cometbft/libs/flowrate"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	"github.com/cometbft/cometbft/libs/protoio"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	"github.com/cometbft/cometbft/libs/timer"
+	tmp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
 const (
@@ -47,10 +47,8 @@ const (
 	defaultPongTimeout         = 45 * time.Second
 )
 
-type (
-	receiveCbFunc func(chID byte, msgBytes []byte)
-	errorCbFunc   func(interface{})
-)
+type receiveCbFunc func(chID byte, msgBytes []byte)
+type errorCbFunc func(interface{})
 
 /*
 Each peer has one `MConnection` (multiplex connection) instance.
@@ -192,8 +190,8 @@ func NewMConnectionWithConfig(
 	}
 
 	// Create channels
-	channelsIdx := map[byte]*Channel{}
-	channels := []*Channel{}
+	var channelsIdx = map[byte]*Channel{}
+	var channels = []*Channel{}
 
 	for _, desc := range chDescs {
 		channel := newChannel(mconn, *desc)
@@ -556,7 +554,7 @@ func (c *MConnection) sendPacketMsg() bool {
 }
 
 // recvRoutine reads PacketMsgs and reconstructs the message using the channels' "recving" buffer.
-// After a whole message has been assembled, it's pushed to onReceive().
+// After a whole message has been assembled, it's pushed to onReceiveEnvelope().
 // Blocks depending on how the connection is throttled.
 // Otherwise, it never blocks.
 func (c *MConnection) recvRoutine() {
@@ -707,7 +705,6 @@ func (c *MConnection) Status() ConnectionStatus {
 	status.RecvMonitor = c.recvMonitor.Status()
 	status.Channels = make([]ChannelStatus, len(c.channels))
 	for i, channel := range c.channels {
-		channel := channel
 		status.Channels[i] = ChannelStatus{
 			ID:                channel.desc.ID,
 			SendQueueCapacity: cap(channel.sendQueue),
@@ -859,7 +856,7 @@ func (ch *Channel) writePacketMsgTo(w io.Writer) (n int, err error) {
 // Not goroutine-safe
 func (ch *Channel) recvPacketMsg(packet tmp2p.PacketMsg) ([]byte, error) {
 	ch.Logger.Debug("Read PacketMsg", "conn", ch.conn, "packet", packet)
-	recvCap, recvReceived := ch.desc.RecvMessageCapacity, len(ch.recving)+len(packet.Data)
+	var recvCap, recvReceived = ch.desc.RecvMessageCapacity, len(ch.recving) + len(packet.Data)
 	if recvCap < recvReceived {
 		return nil, fmt.Errorf("received message exceeds available capacity: %v < %v", recvCap, recvReceived)
 	}

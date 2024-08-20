@@ -4,17 +4,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/p2p"
-	p2pmocks "github.com/tendermint/tendermint/p2p/mocks"
-	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
-	proxymocks "github.com/tendermint/tendermint/proxy/mocks"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/p2p"
+	p2pmocks "github.com/cometbft/cometbft/p2p/mocks"
+	ssproto "github.com/cometbft/cometbft/proto/tendermint/statesync"
+	proxymocks "github.com/cometbft/cometbft/proxy/mocks"
 )
 
 func TestReactor_Receive_ChunkRequest(t *testing.T) {
@@ -50,7 +50,7 @@ func TestReactor_Receive_ChunkRequest(t *testing.T) {
 			}).Return(&abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}, nil)
 
 			// Mock peer to store response, if found
-			peer := &p2pmocks.PeerEnvelopeSender{}
+			peer := &p2pmocks.Peer{}
 			peer.On("ID").Return(p2p.ID("id"))
 			var response *ssproto.ChunkResponse
 			if tc.expectResponse != nil {
@@ -141,7 +141,7 @@ func TestReactor_Receive_SnapshotsRequest(t *testing.T) {
 
 			// Mock peer to catch responses and store them in a slice
 			responses := []*ssproto.SnapshotsResponse{}
-			peer := &p2pmocks.PeerEnvelopeSender{}
+			peer := &p2pmocks.Peer{}
 			if len(tc.expectResponses) > 0 {
 				peer.On("ID").Return(p2p.ID("id"))
 				peer.On("SendEnvelope", mock.MatchedBy(func(i interface{}) bool {
@@ -182,22 +182,4 @@ func TestReactor_Receive_SnapshotsRequest(t *testing.T) {
 			peer.AssertExpectations(t)
 		})
 	}
-}
-
-func TestLegacyReactorReceiveBasic(t *testing.T) {
-	cfg := config.DefaultStateSyncConfig()
-	conn := &proxymocks.AppConnSnapshot{}
-	reactor := NewReactor(*cfg, conn, nil, "")
-	peer := p2p.CreateRandomPeer(false)
-
-	reactor.InitPeer(peer)
-	reactor.AddPeer(peer)
-	m := &ssproto.ChunkRequest{Height: 1, Format: 1, Index: 1}
-	wm := m.Wrap()
-	msg, err := proto.Marshal(wm)
-	assert.NoError(t, err)
-
-	assert.NotPanics(t, func() {
-		reactor.Receive(ChunkChannel, peer, msg)
-	})
 }

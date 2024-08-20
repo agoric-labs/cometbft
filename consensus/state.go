@@ -10,24 +10,24 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
-	cfg "github.com/tendermint/tendermint/config"
-	cstypes "github.com/tendermint/tendermint/consensus/types"
-	"github.com/tendermint/tendermint/crypto"
-	cmtevents "github.com/tendermint/tendermint/libs/events"
-	"github.com/tendermint/tendermint/libs/fail"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	"github.com/tendermint/tendermint/p2p"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	sm "github.com/tendermint/tendermint/state"
-	"github.com/tendermint/tendermint/types"
-	cmttime "github.com/tendermint/tendermint/types/time"
+	cfg "github.com/cometbft/cometbft/config"
+	cstypes "github.com/cometbft/cometbft/consensus/types"
+	"github.com/cometbft/cometbft/crypto"
+	cmtevents "github.com/cometbft/cometbft/libs/events"
+	"github.com/cometbft/cometbft/libs/fail"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtos "github.com/cometbft/cometbft/libs/os"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	"github.com/cometbft/cometbft/p2p"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	sm "github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/types"
+	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
 // Consensus sentinel errors
@@ -36,6 +36,7 @@ var (
 	ErrInvalidProposalPOLRound    = errors.New("error invalid proposal POL round")
 	ErrAddingVote                 = errors.New("error adding vote")
 	ErrSignatureFoundInPastBlocks = errors.New("found signature from the same key")
+	ErrProposalTooManyParts       = errors.New("proposal block has too many parts")
 
 	errPubKeyIsNotSet = errors.New("pubkey is not set. Look for \"Can't get private validator pubkey\" errors")
 )
@@ -171,7 +172,9 @@ func NewState(
 		evsw:             cmtevents.NewEventSwitch(),
 		metrics:          NopMetrics(),
 	}
-
+	for _, option := range options {
+		option(cs)
+	}
 	// set function defaults (may be overwritten before calling Start)
 	cs.decideProposal = cs.defaultDecideProposal
 	cs.doPrevote = cs.defaultDoPrevote
@@ -179,6 +182,11 @@ func NewState(
 
 	// We have no votes, so reconstruct LastCommit from SeenCommit.
 	if state.LastBlockHeight > 0 {
+		// In case of out of band performed statesync, the state store
+		// will have a state but no extended commit (as no block has been downloaded).
+		// If the height at which the vote extensions are enabled is lower
+		// than the height at which we statesync, consensus will panic because
+		// it will try to reconstruct the extended commit here.
 		cs.reconstructLastCommit(state)
 	}
 
@@ -187,9 +195,6 @@ func NewState(
 	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
 
 	cs.BaseService = *service.NewBaseService(nil, "State", cs)
-	for _, option := range options {
-		option(cs)
-	}
 
 	return cs
 }
@@ -522,7 +527,7 @@ func (cs *State) updateHeight(height int64) {
 func (cs *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 	if !cs.replayMode {
 		if round != cs.Round || round == 0 && step == cstypes.RoundStepNewRound {
-			cs.metrics.MarkRound(cs.Round)
+			cs.metrics.MarkRound(cs.Round, cs.StartTime)
 		}
 		if cs.Step != step {
 			cs.metrics.MarkStep(cs.Step)
@@ -915,7 +920,7 @@ func (cs *State) handleTimeout(ti timeoutInfo, rs cstypes.RoundState) {
 		cs.enterNewRound(ti.Height, 0)
 
 	case cstypes.RoundStepNewRound:
-		cs.enterPropose(ti.Height, 0)
+		cs.enterPropose(ti.Height, ti.Round)
 
 	case cstypes.RoundStepPropose:
 		if err := cs.eventBus.PublishEventTimeoutPropose(cs.RoundStateEvent()); err != nil {
@@ -1144,8 +1149,18 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 		block, blockParts = cs.ValidBlock, cs.ValidBlockParts
 	} else {
 		// Create a new proposal block from state/txs from the mempool.
-		block, blockParts = cs.createProposalBlock()
-		if block == nil {
+		var err error
+		block, err = cs.createProposalBlock()
+		if err != nil {
+			cs.Logger.Error("unable to create proposal block", "error", err)
+			return
+		} else if block == nil {
+			panic("Method createProposalBlock should not provide a nil block without errors")
+		}
+		cs.metrics.ProposalCreateCount.Add(1)
+		blockParts, err = block.MakePartSet(types.BlockPartSizeBytes)
+		if err != nil {
+			cs.Logger.Error("unable to create proposal block part set", "error", err)
 			return
 		}
 	}
@@ -1199,9 +1214,9 @@ func (cs *State) isProposalComplete() bool {
 //
 // NOTE: keep it side-effect free for clarity.
 // CONTRACT: cs.privValidator is not nil.
-func (cs *State) createProposalBlock() (block *types.Block, blockParts *types.PartSet) {
+func (cs *State) createProposalBlock() (*types.Block, error) {
 	if cs.privValidator == nil {
-		panic("entered createProposalBlock with privValidator being nil")
+		return nil, errors.New("entered createProposalBlock with privValidator being nil")
 	}
 
 	var commit *types.Commit
@@ -1216,20 +1231,22 @@ func (cs *State) createProposalBlock() (block *types.Block, blockParts *types.Pa
 		commit = cs.LastCommit.MakeCommit()
 
 	default: // This shouldn't happen.
-		cs.Logger.Error("propose step; cannot propose anything without commit for the previous block")
-		return
+		return nil, errors.New("propose step; cannot propose anything without commit for the previous block")
 	}
 
 	if cs.privValidatorPubKey == nil {
 		// If this node is a validator & proposer in the current round, it will
 		// miss the opportunity to create a block.
-		cs.Logger.Error("propose step; empty priv validator public key", "err", errPubKeyIsNotSet)
-		return
+		return nil, fmt.Errorf("propose step; empty priv validator public key, error: %w", errPubKeyIsNotSet)
 	}
 
 	proposerAddr := cs.privValidatorPubKey.Address()
 
-	return cs.blockExec.CreateProposalBlock(cs.Height, cs.state, commit, proposerAddr)
+	ret, err := cs.blockExec.CreateProposalBlock(cs.Height, cs.state, commit, proposerAddr)
+	if err != nil {
+		panic(err)
+	}
+	return ret, nil
 }
 
 // Enter: `timeoutPropose` after entering Propose.
@@ -1279,11 +1296,38 @@ func (cs *State) defaultDoPrevote(height int64, round int32) {
 		return
 	}
 
-	// Validate proposal block
+	// Validate proposal block, from consensus' perspective
 	err := cs.blockExec.ValidateBlock(cs.state, cs.ProposalBlock)
 	if err != nil {
 		// ProposalBlock is invalid, prevote nil.
-		logger.Error("prevote step: ProposalBlock is invalid", "err", err)
+		logger.Error("prevote step: consensus deems this block invalid; prevoting nil",
+			"err", err)
+		cs.signAddVote(cmtproto.PrevoteType, nil, types.PartSetHeader{})
+		return
+	}
+
+	/*
+		Before prevoting on the block received from the proposer for the current round and height,
+		we request the Application, via `ProcessProposal` ABCI call, to confirm that the block is
+		valid. If the Application does not accept the block, consensus prevotes `nil`.
+
+		WARNING: misuse of block rejection by the Application can seriously compromise
+		the liveness properties of consensus.
+		Please see `PrepareProosal`-`ProcessProposal` coherence and determinism properties
+		in the ABCI++ specification.
+	*/
+	isAppValid, err := cs.blockExec.ProcessProposal(cs.ProposalBlock, cs.state)
+	if err != nil {
+		panic(fmt.Sprintf(
+			"state machine returned an error (%v) when calling ProcessProposal", err,
+		))
+	}
+	cs.metrics.MarkProposalProcessed(isAppValid)
+
+	// Vote nil if the Application rejected the block
+	if !isAppValid {
+		logger.Error("prevote step: state machine rejected a proposed block; this should not happen:"+
+			"the proposer may be misbehaving; prevoting nil", "err", err)
 		cs.signAddVote(cmtproto.PrevoteType, nil, types.PartSetHeader{})
 		return
 	}
@@ -1844,6 +1888,15 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal) error {
 		return ErrInvalidProposalSignature
 	}
 
+	// Validate the proposed block size, derived from its PartSetHeader
+	maxBytes := cs.state.ConsensusParams.Block.MaxBytes
+	if maxBytes == -1 {
+		maxBytes = int64(types.MaxBlockSizeBytes)
+	}
+	if int64(proposal.BlockID.PartSetHeader.Total) > (maxBytes-1)/int64(types.BlockPartSizeBytes)+1 {
+		return ErrProposalTooManyParts
+	}
+
 	proposal.Signature = p.Signature
 	cs.Proposal = proposal
 	// We don't update cs.ProposalBlockParts if it is already set.
@@ -2022,6 +2075,10 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		"cs_height", cs.Height,
 	)
 
+	if vote.Height < cs.Height || (vote.Height == cs.Height && vote.Round < cs.Round) {
+		cs.metrics.MarkLateVote(vote.Type)
+	}
+
 	// A precommit for the previous height?
 	// These come in while we wait timeoutCommit
 	if vote.Height+1 == cs.Height && vote.Type == cmtproto.PrecommitType {
@@ -2054,7 +2111,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 	}
 
 	// Height mismatch is ignored.
-	// Not necessarily a bad peer, but not favourable behaviour.
+	// Not necessarily a bad peer, but not favorable behavior.
 	if vote.Height != cs.Height {
 		cs.Logger.Debug("vote ignored and not added", "vote_height", vote.Height, "cs_height", cs.Height, "peer", peerID)
 		return
@@ -2065,6 +2122,11 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 	if !added {
 		// Either duplicate, or error upon cs.Votes.AddByIndex()
 		return
+	}
+	if vote.Round == cs.Round {
+		vals := cs.state.Validators
+		_, val := vals.GetByIndex(vote.ValidatorIndex)
+		cs.metrics.MarkVoteReceived(vote.Type, val.VotingPower, vals.TotalVotingPower())
 	}
 
 	if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
@@ -2227,12 +2289,13 @@ func (cs *State) signVote(
 func (cs *State) voteTime() time.Time {
 	now := cmttime.Now()
 	minVoteTime := now
+	// Minimum time increment between blocks
+	const timeIota = time.Millisecond
 	// TODO: We should remove next line in case we don't vote for v in case cs.ProposalBlock == nil,
-	// even if cs.LockedBlock != nil. See https://github.com/tendermint/tendermint/tree/v0.34.x/spec/.
-	timeIota := time.Duration(cs.state.ConsensusParams.Block.TimeIotaMs) * time.Millisecond
+	// even if cs.LockedBlock != nil. See https://github.com/cometbft/cometbft/tree/v0.37.x/spec/.
 	if cs.LockedBlock != nil {
 		// See the BFT time spec
-		// https://github.com/tendermint/tendermint/blob/v0.34.x/spec/consensus/bft-time.md
+		// https://github.com/cometbft/cometbft/blob/v0.37.x/spec/consensus/bft-time.md
 		minVoteTime = cs.LockedBlock.Time.Add(timeIota)
 	} else if cs.ProposalBlock != nil {
 		minVoteTime = cs.ProposalBlock.Time.Add(timeIota)
@@ -2331,12 +2394,12 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 		_, val := cs.Validators.GetByAddress(v.ValidatorAddress)
 		votingPowerSeen += val.VotingPower
 		if votingPowerSeen >= cs.Validators.TotalVotingPower()*2/3+1 {
-			cs.metrics.QuorumPrevoteMessageDelay.Set(v.Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
+			cs.metrics.QuorumPrevoteDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
 			break
 		}
 	}
 	if ps.HasAll() {
-		cs.metrics.FullPrevoteMessageDelay.Set(pl[len(pl)-1].Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
+		cs.metrics.FullPrevoteDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
 	}
 }
 
