@@ -3,8 +3,10 @@ package mempool
 import (
 	"testing"
 
-	"github.com/cometbft/cometbft/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/cometbft/cometbft/types"
 )
 
 var tx = types.Tx([]byte{0x01})
@@ -15,7 +17,7 @@ func TestNopMempool_Basic(t *testing.T) {
 	assert.Equal(t, 0, mem.Size())
 	assert.Equal(t, int64(0), mem.SizeBytes())
 
-	err := mem.CheckTx(tx, nil, TxInfo{})
+	_, err := mem.CheckTx(tx, "")
 	assert.Equal(t, errNotAllowed, err)
 
 	err = mem.RemoveTxByKey(tx.Key())
@@ -28,10 +30,10 @@ func TestNopMempool_Basic(t *testing.T) {
 	assert.Nil(t, txs)
 
 	err = mem.FlushAppConn()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = mem.Update(0, nil, nil, nil, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	txsAvailable := mem.TxsAvailable()
 	assert.Nil(t, txsAvailable)

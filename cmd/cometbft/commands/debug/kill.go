@@ -32,7 +32,7 @@ $ cometbft debug 34255 /path/to/cmt-debug.zip`,
 	RunE: killCmdHandler,
 }
 
-func killCmdHandler(cmd *cobra.Command, args []string) error {
+func killCmdHandler(_ *cobra.Command, args []string) error {
 	pid, err := strconv.Atoi(args[0])
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func killCmdHandler(cmd *cobra.Command, args []string) error {
 		return errors.New("invalid output file")
 	}
 
-	rpc, err := rpchttp.New(nodeRPCAddr, "/websocket")
+	rpc, err := rpchttp.New(nodeRPCAddr)
 	if err != nil {
 		return fmt.Errorf("failed to create new http client: %w", err)
 	}

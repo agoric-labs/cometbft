@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -21,14 +19,14 @@ func MakeCommitFromVoteSet(blockID types.BlockID, voteSet *types.VoteSet, valida
 			ValidatorIndex:   int32(i),
 			Height:           voteSet.GetHeight(),
 			Round:            voteSet.GetRound(),
-			Type:             cmtproto.PrecommitType,
+			Type:             types.PrecommitType,
 			BlockID:          blockID,
 			Timestamp:        now,
 		}
 
 		v := vote.ToProto()
 
-		if err := validators[i].SignVote(voteSet.ChainID(), v); err != nil {
+		if err := validators[i].SignVote(voteSet.ChainID(), v, false); err != nil {
 			return nil, err
 		}
 		vote.Signature = v.Signature
@@ -37,11 +35,7 @@ func MakeCommitFromVoteSet(blockID types.BlockID, voteSet *types.VoteSet, valida
 		}
 	}
 
-	return voteSet.MakeCommit(), nil
-}
-
-func MakeVoteSet(lastState sm.State, round int32) *types.VoteSet {
-	return types.NewVoteSet(lastState.ChainID, lastState.LastBlockHeight+1, round, cmtproto.PrecommitType, lastState.NextValidators)
+	return voteSet.MakeExtendedCommit(types.DefaultFeatureParams()).ToCommit(), nil
 }
 
 func MakeCommit(blockID types.BlockID, height int64, round int32, valSet *types.ValidatorSet, privVals []types.PrivValidator, chainID string, now time.Time) (*types.Commit, error) {
@@ -57,7 +51,7 @@ func MakeCommit(blockID types.BlockID, height int64, round int32, valSet *types.
 		}
 		addr := pk.Address()
 
-		idx, _ := valSet.GetByAddress(addr)
+		idx, _ := valSet.GetByAddressMut(addr)
 		if idx < 0 {
 			return nil, fmt.Errorf("validator with address %s not in validator set", addr)
 		}
@@ -67,14 +61,14 @@ func MakeCommit(blockID types.BlockID, height int64, round int32, valSet *types.
 			ValidatorIndex:   idx,
 			Height:           height,
 			Round:            round,
-			Type:             cmtproto.PrecommitType,
+			Type:             types.PrecommitType,
 			BlockID:          blockID,
 			Timestamp:        now,
 		}
 
 		v := vote.ToProto()
 
-		if err := privVal.SignVote(chainID, v); err != nil {
+		if err := privVal.SignVote(chainID, v, false); err != nil {
 			return nil, err
 		}
 
@@ -86,5 +80,5 @@ func MakeCommit(blockID types.BlockID, height int64, round int32, valSet *types.
 		}
 	}
 
-	return types.NewCommit(height, round, blockID, sigs), nil
+	return &types.Commit{Height: height, Round: round, BlockID: blockID, Signatures: sigs}, nil
 }

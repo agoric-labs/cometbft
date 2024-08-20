@@ -5,24 +5,26 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/cometbft/cometbft/abci/example/kvstore"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	"github.com/cometbft/cometbft/rpc/jsonrpc/types"
 	rpctest "github.com/cometbft/cometbft/rpc/test"
 )
 
 func ExampleHTTP_simple() {
 	// Start a CometBFT node (and kvstore) in the background to test against
-	app := kvstore.NewApplication()
-	node := rpctest.StartTendermint(app, rpctest.SuppressStdout, rpctest.RecreateConfig)
-	defer rpctest.StopTendermint(node)
+	app := kvstore.NewInMemoryApplication()
+	node := rpctest.StartCometBFT(app, rpctest.SuppressStdout, rpctest.RecreateConfig)
+	defer rpctest.StopCometBFT(node)
 
 	// Create our RPC client
 	rpcAddr := rpctest.GetConfig().RPC.ListenAddress
-	c, err := rpchttp.New(rpcAddr, "/websocket")
+	c, err := rpchttp.New(rpcAddr)
 	if err != nil {
-		log.Fatal(err) //nolint:gocritic
+		log.Fatal(err)
 	}
 
 	// Create a transaction
@@ -36,7 +38,7 @@ func ExampleHTTP_simple() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if bres.CheckTx.IsErr() || bres.DeliverTx.IsErr() {
+	if bres.CheckTx.IsErr() || bres.TxResult.IsErr() {
 		log.Fatal("BroadcastTxCommit transaction failed")
 	}
 
@@ -67,17 +69,17 @@ func ExampleHTTP_simple() {
 
 func ExampleHTTP_batching() {
 	// Start a CometBFT node (and kvstore) in the background to test against
-	app := kvstore.NewApplication()
-	node := rpctest.StartTendermint(app, rpctest.SuppressStdout, rpctest.RecreateConfig)
+	app := kvstore.NewInMemoryApplication()
+	node := rpctest.StartCometBFT(app, rpctest.SuppressStdout, rpctest.RecreateConfig)
 
 	// Create our RPC client
 	rpcAddr := rpctest.GetConfig().RPC.ListenAddress
-	c, err := rpchttp.New(rpcAddr, "/websocket")
+	c, err := rpchttp.New(rpcAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	defer rpctest.StopTendermint(node)
+	defer rpctest.StopCometBFT(node)
 
 	// Create our two transactions
 	k1 := []byte("firstName")
@@ -98,7 +100,7 @@ func ExampleHTTP_batching() {
 		// Broadcast the transaction and wait for it to commit (rather use
 		// c.BroadcastTxSync though in production).
 		if _, err := batch.BroadcastTxCommit(context.Background(), tx); err != nil {
-			log.Fatal(err) //nolint:gocritic
+			log.Fatal(err)
 		}
 	}
 
@@ -134,4 +136,56 @@ func ExampleHTTP_batching() {
 	// Output:
 	// firstName = satoshi
 	// lastName = nakamoto
+}
+
+// Test the maximum batch request size middleware.
+func ExampleHTTP_maxBatchSize() {
+	// Start a CometBFT node (and kvstore) in the background to test against
+	app := kvstore.NewInMemoryApplication()
+	node := rpctest.StartCometBFT(app, rpctest.RecreateConfig, rpctest.SuppressStdout, rpctest.MaxReqBatchSize)
+
+	// Change the max_request_batch_size
+	node.Config().RPC.MaxRequestBatchSize = 2
+
+	// Create our RPC client
+	rpcAddr := rpctest.GetConfig().RPC.ListenAddress
+	c, err := rpchttp.New(rpcAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer rpctest.StopCometBFT(node)
+
+	// Create a new batch
+	batch := c.NewBatch()
+
+	for i := 1; i <= 5; i++ {
+		if _, err := batch.Health(context.Background()); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Send the requests
+	results, err := batch.Send(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Each result in the returned list is the deserialized result of each
+	// respective status response
+	for _, result := range results {
+		rpcError, ok := result.(*types.RPCError)
+		if !ok {
+			log.Fatal("invalid result type")
+		}
+		if !strings.Contains(rpcError.Data, "batch request exceeds maximum") {
+			fmt.Println("Error message does not contain 'Max Request Batch Exceeded'")
+		} else {
+			// The max request batch size rpcError has been returned
+			fmt.Println("Max Request Batch Exceeded")
+		}
+	}
+
+	// Output:
+	// Max Request Batch Exceeded
 }

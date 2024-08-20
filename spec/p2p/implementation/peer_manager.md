@@ -85,16 +85,9 @@ To avoid this delay, which can be particularly relevant when the node has no
 peers, a node immediately attempts to dial peer addresses when they are
 received from a peer that is locally configured as a seed node.
 
-> FIXME: The current logic was introduced in [#3762](https://github.com/tendermint/tendermint/pull/3762).
-> Although it fix the issue, the delay between receiving an address and dialing
-> the peer, it does not impose and limit on how many addresses are dialed in this
-> scenario.
-> So, all addresses received from a seed node are dialed, regardless of the
-> current number of outbound peers, the number of dialing routines, or the
-> `MaxNumOutboundPeers` parameter.
->
-> Issue [#9548](https://github.com/tendermint/tendermint/issues/9548) was
-> created to handle this situation.
+> This was implemented in a rough way, leading to inconsistencies described in
+> this [issue](https://github.com/cometbft/cometbft/issues/486),
+> fixed by this [PR](https://github.com/cometbft/cometbft/pull/3360).
 
 ### First round
 
@@ -128,7 +121,7 @@ The picture below is a first attempt of illustrating the life cycle of an outbou
 
 A peer can be in the following states:
 
-- Candidate peers: peer addresses stored in the address boook, that can be
+- Candidate peers: peer addresses stored in the address book, that can be
   retrieved via the [`PickAddress`](./addressbook.md#pick-address) method
 - [Dialing](./switch.md#dialing-peers): peer addresses that are currently being
   dialed. This state exists to ensure that a single dialing routine exist per peer.

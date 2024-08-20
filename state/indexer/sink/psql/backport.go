@@ -18,14 +18,10 @@ import (
 	"errors"
 
 	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
-)
-
-const (
-	eventTypeBeginBlock = "begin_block"
-	eventTypeEndBlock   = "end_block"
 )
 
 // TxIndexer returns a bridge from es to the CometBFT v0.34 transaction indexer.
@@ -36,6 +32,19 @@ func (es *EventSink) TxIndexer() BackportTxIndexer {
 // BackportTxIndexer implements the txindex.TxIndexer interface by delegating
 // indexing operations to an underlying PostgreSQL event sink.
 type BackportTxIndexer struct{ psql *EventSink }
+
+func (BackportTxIndexer) GetRetainHeight() (int64, error) {
+	return 0, nil
+}
+
+func (BackportTxIndexer) SetRetainHeight(_ int64) error {
+	return nil
+}
+
+func (BackportTxIndexer) Prune(_ int64) (numPruned, newRetainHeight int64, err error) {
+	// Not implemented
+	return 0, 0, nil
+}
 
 // AddBatch indexes a batch of transactions in Postgres, as part of TxIndexer.
 func (b BackportTxIndexer) AddBatch(batch *txindex.Batch) error {
@@ -55,9 +64,11 @@ func (BackportTxIndexer) Get([]byte) (*abci.TxResult, error) {
 
 // Search is implemented to satisfy the TxIndexer interface, but it is not
 // supported by the psql event sink and reports an error for all inputs.
-func (BackportTxIndexer) Search(context.Context, *query.Query) ([]*abci.TxResult, error) {
-	return nil, errors.New("the TxIndexer.Search method is not supported")
+func (BackportTxIndexer) Search(context.Context, *query.Query, txindex.Pagination) ([]*abci.TxResult, int, error) {
+	return nil, 0, errors.New("the TxIndexer.Search method is not supported")
 }
+
+func (BackportTxIndexer) SetLogger(log.Logger) {}
 
 // BlockIndexer returns a bridge that implements the CometBFT v0.34 block
 // indexer interface, using the Postgres event sink as a backing store.
@@ -69,15 +80,28 @@ func (es *EventSink) BlockIndexer() BackportBlockIndexer {
 // delegating indexing operations to an underlying PostgreSQL event sink.
 type BackportBlockIndexer struct{ psql *EventSink }
 
+func (BackportBlockIndexer) SetRetainHeight(_ int64) error {
+	return nil
+}
+
+func (BackportBlockIndexer) GetRetainHeight() (int64, error) {
+	return 0, nil
+}
+
+func (BackportBlockIndexer) Prune(_ int64) (numPruned, newRetainHeight int64, err error) {
+	// Not implemented
+	return 0, 0, nil
+}
+
 // Has is implemented to satisfy the BlockIndexer interface, but it is not
 // supported by the psql event sink and reports an error for all inputs.
-func (BackportBlockIndexer) Has(height int64) (bool, error) {
+func (BackportBlockIndexer) Has(_ int64) (bool, error) {
 	return false, errors.New("the BlockIndexer.Has method is not supported")
 }
 
 // Index indexes block begin and end events for the specified block.  It is
 // part of the BlockIndexer interface.
-func (b BackportBlockIndexer) Index(block types.EventDataNewBlockHeader) error {
+func (b BackportBlockIndexer) Index(block types.EventDataNewBlockEvents) error {
 	return b.psql.IndexBlockEvents(block)
 }
 
@@ -86,3 +110,5 @@ func (b BackportBlockIndexer) Index(block types.EventDataNewBlockHeader) error {
 func (BackportBlockIndexer) Search(context.Context, *query.Query) ([]int64, error) {
 	return nil, errors.New("the BlockIndexer.Search method is not supported")
 }
+
+func (BackportBlockIndexer) SetLogger(log.Logger) {}

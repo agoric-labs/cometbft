@@ -6,19 +6,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cometbft/cometbft/libs/cmap"
+	tmp2p "github.com/cometbft/cometbft/api/cometbft/p2p/v1"
+	"github.com/cometbft/cometbft/internal/cmap"
+	cmtrand "github.com/cometbft/cometbft/internal/rand"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
-	cmtrand "github.com/cometbft/cometbft/libs/rand"
 	"github.com/cometbft/cometbft/libs/service"
 	"github.com/cometbft/cometbft/p2p"
 	"github.com/cometbft/cometbft/p2p/conn"
-	cmtp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
 type Peer = p2p.Peer
 
 const (
-	// PexChannel is a channel for PEX messages
+	// PexChannel is a channel for PEX messages.
 	PexChannel = byte(0x00)
 
 	// over-estimate of max NetAddress size
@@ -27,18 +27,18 @@ const (
 	maxAddressSize = 256
 
 	// NOTE: amplificaiton factor!
-	// small request results in up to maxMsgSize response
+	// small request results in up to maxMsgSize response.
 	maxMsgSize = maxAddressSize * maxGetSelection
 
-	// ensure we have enough peers
+	// ensure we have enough peers.
 	defaultEnsurePeersPeriod = 30 * time.Second
 
-	// Seed/Crawler constants
+	// Seed/Crawler constants.
 
 	// minTimeBetweenCrawls is a minimum time between attempts to crawl a peer.
 	minTimeBetweenCrawls = 2 * time.Minute
 
-	// check some peers every this
+	// check some peers every this.
 	crawlPeerPeriod = 30 * time.Second
 
 	maxAttemptsToDial = 16 // ~ 35h in total (last attempt - 18h)
@@ -48,27 +48,9 @@ const (
 	// untrusted.
 	biasToSelectNewPeers = 30 // 70 to select good peers
 
-	// if a peer is marked bad, it will be banned for at least this time period
+	// if a peer is marked bad, it will be banned for at least this time period.
 	defaultBanTime = 24 * time.Hour
 )
-
-type errMaxAttemptsToDial struct {
-}
-
-func (e errMaxAttemptsToDial) Error() string {
-	return fmt.Sprintf("reached max attempts %d to dial", maxAttemptsToDial)
-}
-
-type errTooEarlyToDial struct {
-	backoffDuration time.Duration
-	lastDialed      time.Time
-}
-
-func (e errTooEarlyToDial) Error() string {
-	return fmt.Sprintf(
-		"too early to dial (backoff duration: %d, last dialed: %v, time since: %v)",
-		e.backoffDuration, e.lastDialed, time.Since(e.lastDialed))
-}
 
 // Reactor handles PEX (peer exchange) and ensures that an
 // adequate number of peers are connected to the switch.
@@ -84,7 +66,9 @@ type Reactor struct {
 
 	book              AddrBook
 	config            *ReactorConfig
+	ensurePeersCh     chan struct{} // Wakes up ensurePeersRoutine()
 	ensurePeersPeriod time.Duration // TODO: should go in the config
+	peersRoutineWg    sync.WaitGroup
 
 	// maps to prevent abuse
 	requestsSent         *cmap.CMap // ID->struct{}: unanswered send requests
@@ -132,6 +116,7 @@ func NewReactor(b AddrBook, config *ReactorConfig) *Reactor {
 	r := &Reactor{
 		book:                 b,
 		config:               config,
+		ensurePeersCh:        make(chan struct{}),
 		ensurePeersPeriod:    defaultEnsurePeersPeriod,
 		requestsSent:         cmap.NewCMap(),
 		lastReceivedRequests: cmap.NewCMap(),
@@ -141,10 +126,10 @@ func NewReactor(b AddrBook, config *ReactorConfig) *Reactor {
 	return r
 }
 
-// OnStart implements BaseService
+// OnStart implements BaseService.
 func (r *Reactor) OnStart() error {
 	err := r.book.Start()
-	if err != nil && err != service.ErrAlreadyStarted {
+	if err != nil && !errors.Is(err, service.ErrAlreadyStarted) {
 		return err
 	}
 
@@ -152,11 +137,12 @@ func (r *Reactor) OnStart() error {
 	if err != nil {
 		return err
 	} else if numOnline == 0 && r.book.Empty() {
-		return errors.New("address book is empty and couldn't resolve any seed nodes")
+		return ErrEmptyAddressBook
 	}
 
 	r.seedAddrs = seedAddrs
 
+	r.peersRoutineWg.Add(1)
 	// Check if this node should run
 	// in seed/crawler mode
 	if r.config.SeedMode {
@@ -167,22 +153,27 @@ func (r *Reactor) OnStart() error {
 	return nil
 }
 
-// OnStop implements BaseService
-func (r *Reactor) OnStop() {
-	if err := r.book.Stop(); err != nil {
-		r.Logger.Error("Error stopping address book", "err", err)
+// Stop overrides `Service.Stop()`.
+func (r *Reactor) Stop() error {
+	if err := r.BaseReactor.Stop(); err != nil {
+		return err
 	}
+	if err := r.book.Stop(); err != nil {
+		return fmt.Errorf("can't stop address book: %w", err)
+	}
+	r.peersRoutineWg.Wait()
+	return nil
 }
 
-// GetChannels implements Reactor
-func (r *Reactor) GetChannels() []*conn.ChannelDescriptor {
+// GetChannels implements Reactor.
+func (*Reactor) GetChannels() []*conn.ChannelDescriptor {
 	return []*conn.ChannelDescriptor{
 		{
 			ID:                  PexChannel,
 			Priority:            1,
 			SendQueueCapacity:   10,
 			RecvMessageCapacity: maxMsgSize,
-			MessageType:         &cmtp2p.Message{},
+			MessageType:         &tmp2p.Message{},
 		},
 	}
 }
@@ -216,7 +207,7 @@ func (r *Reactor) AddPeer(p Peer) {
 }
 
 // RemovePeer implements Reactor by resetting peer's requests info.
-func (r *Reactor) RemovePeer(p Peer, reason interface{}) {
+func (r *Reactor) RemovePeer(p Peer, _ any) {
 	id := string(p.ID())
 	r.requestsSent.Delete(id)
 	r.lastReceivedRequests.Delete(id)
@@ -235,11 +226,11 @@ func (r *Reactor) logErrAddrBook(err error) {
 }
 
 // Receive implements Reactor by handling incoming PEX messages.
-func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
+func (r *Reactor) Receive(e p2p.Envelope) {
 	r.Logger.Debug("Received message", "src", e.Src, "chId", e.ChannelID, "msg", e.Message)
 
 	switch msg := e.Message.(type) {
-	case *cmtp2p.PexRequest:
+	case *tmp2p.PexRequest:
 
 		// NOTE: this is a prime candidate for amplification attacks,
 		// so it's important we
@@ -265,7 +256,6 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 				e.Src.FlushStop()
 				r.Switch.StopPeerGracefully(e.Src)
 			}()
-
 		} else {
 			// Check we're not receiving requests too frequently.
 			if err := r.receiveRequest(e.Src); err != nil {
@@ -287,7 +277,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 		err = r.ReceiveAddrs(addrs, e.Src)
 		if err != nil {
 			r.Switch.StopPeerForError(e.Src, err)
-			if err == ErrUnsolicitedList {
+			if errors.Is(err, ErrUnsolicitedList) {
 				r.book.MarkBad(e.Src.SocketAddr(), defaultBanTime)
 			}
 			return
@@ -298,7 +288,7 @@ func (r *Reactor) ReceiveEnvelope(e p2p.Envelope) {
 	}
 }
 
-// enforces a minimum amount of time between requests
+// enforces a minimum amount of time between requests.
 func (r *Reactor) receiveRequest(src Peer) error {
 	id := string(src.ID())
 	v := r.lastReceivedRequests.Get(id)
@@ -320,13 +310,12 @@ func (r *Reactor) receiveRequest(src Peer) error {
 	now := time.Now()
 	minInterval := r.minReceiveRequestInterval()
 	if now.Sub(lastReceived) < minInterval {
-		return fmt.Errorf(
-			"peer (%v) sent next PEX request too soon. lastReceived: %v, now: %v, minInterval: %v. Disconnecting",
-			src.ID(),
-			lastReceived,
-			now,
-			minInterval,
-		)
+		return ErrReceivedPEXRequestTooSoon{
+			Peer:         src.ID(),
+			LastReceived: lastReceived,
+			Now:          now,
+			MinInterval:  minInterval,
+		}
 	}
 	r.lastReceivedRequests.Set(id, now)
 	return nil
@@ -341,13 +330,13 @@ func (r *Reactor) RequestAddrs(p Peer) {
 	}
 	r.Logger.Debug("Request addrs", "from", p)
 	r.requestsSent.Set(id, struct{}{})
-	p.SendEnvelope(p2p.Envelope{
+	p.Send(p2p.Envelope{
 		ChannelID: PexChannel,
-		Message:   &cmtp2p.PexRequest{},
+		Message:   &tmp2p.PexRequest{},
 	})
 }
 
-// ReceiveAddrs adds the given addrs to the addrbook if theres an open
+// ReceiveAddrs adds the given addrs to the addrbook if there's an open
 // request for this peer and deletes the open request.
 // If there's no open request for the src peer, it returns an error.
 func (r *Reactor) ReceiveAddrs(addrs []*p2p.NetAddress, src Peer) error {
@@ -362,14 +351,6 @@ func (r *Reactor) ReceiveAddrs(addrs []*p2p.NetAddress, src Peer) error {
 		return err
 	}
 
-	srcIsSeed := false
-	for _, seedAddr := range r.seedAddrs {
-		if seedAddr.Equals(srcAddr) {
-			srcIsSeed = true
-			break
-		}
-	}
-
 	for _, netAddr := range addrs {
 		// NOTE: we check netAddr validity and routability in book#AddAddress.
 		err = r.book.AddAddress(netAddr, srcAddr)
@@ -379,21 +360,16 @@ func (r *Reactor) ReceiveAddrs(addrs []*p2p.NetAddress, src Peer) error {
 			// peer here too?
 			continue
 		}
+	}
 
-		// If this address came from a seed node, try to connect to it without
-		// waiting (#2093)
-		if srcIsSeed {
-			go func(addr *p2p.NetAddress) {
-				err := r.dialPeer(addr)
-				if err != nil {
-					switch err.(type) {
-					case errMaxAttemptsToDial, errTooEarlyToDial, p2p.ErrCurrentlyDialingOrExistingAddress:
-						r.Logger.Debug(err.Error(), "addr", addr)
-					default:
-						r.Logger.Debug(err.Error(), "addr", addr)
-					}
-				}
-			}(netAddr)
+	// Try to connect to addresses coming from a seed node without waiting (#2093)
+	for _, seedAddr := range r.seedAddrs {
+		if seedAddr.Equals(srcAddr) {
+			select {
+			case r.ensurePeersCh <- struct{}{}:
+			default:
+			}
+			break
 		}
 	}
 
@@ -401,12 +377,12 @@ func (r *Reactor) ReceiveAddrs(addrs []*p2p.NetAddress, src Peer) error {
 }
 
 // SendAddrs sends addrs to the peer.
-func (r *Reactor) SendAddrs(p Peer, netAddrs []*p2p.NetAddress) {
+func (*Reactor) SendAddrs(p Peer, netAddrs []*p2p.NetAddress) {
 	e := p2p.Envelope{
 		ChannelID: PexChannel,
-		Message:   &cmtp2p.PexAddrs{Addrs: p2p.NetAddressesToProto(netAddrs)},
+		Message:   &tmp2p.PexAddrs{Addrs: p2p.NetAddressesToProto(netAddrs)},
 	}
-	p.SendEnvelope(e)
+	p.Send(e)
 }
 
 // SetEnsurePeersPeriod sets period to ensure peers connected.
@@ -414,8 +390,10 @@ func (r *Reactor) SetEnsurePeersPeriod(d time.Duration) {
 	r.ensurePeersPeriod = d
 }
 
-// Ensures that sufficient peers are connected. (continuous)
+// Ensures that sufficient peers are connected. (continuous).
 func (r *Reactor) ensurePeersRoutine() {
+	defer r.peersRoutineWg.Done()
+
 	var (
 		seed   = cmtrand.NewRand()
 		jitter = seed.Int63n(r.ensurePeersPeriod.Nanoseconds())
@@ -434,12 +412,16 @@ func (r *Reactor) ensurePeersRoutine() {
 
 	// fire periodically
 	ticker := time.NewTicker(r.ensurePeersPeriod)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			r.ensurePeers()
+		case <-r.ensurePeersCh:
+			r.ensurePeers()
+		case <-r.book.Quit():
+			return
 		case <-r.Quit():
-			ticker.Stop()
 			return
 		}
 	}
@@ -477,6 +459,10 @@ func (r *Reactor) ensurePeers() {
 	maxAttempts := numToDial * 3
 
 	for i := 0; i < maxAttempts && len(toDial) < numToDial; i++ {
+		if !r.IsRunning() || !r.book.IsRunning() {
+			return
+		}
+
 		try := r.book.PickAddress(newBias)
 		if try == nil {
 			continue
@@ -499,7 +485,7 @@ func (r *Reactor) ensurePeers() {
 			err := r.dialPeer(addr)
 			if err != nil {
 				switch err.(type) {
-				case errMaxAttemptsToDial, errTooEarlyToDial:
+				case ErrMaxAttemptsToDial, ErrTooEarlyToDial:
 					r.Logger.Debug(err.Error(), "addr", addr)
 				default:
 					r.Logger.Debug(err.Error(), "addr", addr)
@@ -514,12 +500,9 @@ func (r *Reactor) ensurePeers() {
 	}
 
 	if r.book.NeedMoreAddrs() {
-
 		// 1) Pick a random peer and ask for more.
-		peers := r.Switch.Peers().List()
-		peersCount := len(peers)
-		if peersCount > 0 {
-			peer := peers[cmtrand.Int()%peersCount]
+		peer := r.Switch.Peers().Random()
+		if peer != nil {
 			r.Logger.Info("We need more addresses. Sending pexRequest to random peer", "peer", peer)
 			r.RequestAddrs(peer)
 		}
@@ -537,7 +520,7 @@ func (r *Reactor) ensurePeers() {
 func (r *Reactor) dialAttemptsInfo(addr *p2p.NetAddress) (attempts int, lastDialed time.Time) {
 	_attempts, ok := r.attemptsToDial.Load(addr.DialString())
 	if !ok {
-		return
+		return 0, time.Time{}
 	}
 	atd := _attempts.(_attemptsToDial)
 	return atd.number, atd.lastDialed
@@ -547,7 +530,7 @@ func (r *Reactor) dialPeer(addr *p2p.NetAddress) error {
 	attempts, lastDialed := r.dialAttemptsInfo(addr)
 	if !r.Switch.IsPeerPersistent(addr) && attempts > maxAttemptsToDial {
 		r.book.MarkBad(addr, defaultBanTime)
-		return errMaxAttemptsToDial{}
+		return ErrMaxAttemptsToDial{Max: maxAttemptsToDial}
 	}
 
 	// exponential backoff if it's not our first attempt to dial given address
@@ -557,7 +540,7 @@ func (r *Reactor) dialPeer(addr *p2p.NetAddress) error {
 		backoffDuration = r.maxBackoffDurationForPeer(addr, backoffDuration)
 		sinceLastDialed := time.Since(lastDialed)
 		if sinceLastDialed < backoffDuration {
-			return errTooEarlyToDial{backoffDuration, lastDialed}
+			return ErrTooEarlyToDial{backoffDuration, lastDialed}
 		}
 	}
 
@@ -575,7 +558,7 @@ func (r *Reactor) dialPeer(addr *p2p.NetAddress) error {
 		default:
 			r.attemptsToDial.Store(addr.DialString(), _attemptsToDial{attempts + 1, time.Now()})
 		}
-		return fmt.Errorf("dialing failed (attempts: %d): %w", attempts+1, err)
+		return ErrFailedToDial{attempts + 1, err}
 	}
 
 	// cleanup any history
@@ -610,13 +593,13 @@ func (r *Reactor) checkSeeds() (numOnline int, netAddrs []*p2p.NetAddress, err e
 		case p2p.ErrNetAddressLookup:
 			r.Logger.Error("Connecting to seed failed", "err", e)
 		default:
-			return 0, nil, fmt.Errorf("seed node configuration has error: %w", e)
+			return 0, nil, ErrSeedNodeConfig{Err: err}
 		}
 	}
 	return numOnline, netAddrs, nil
 }
 
-// randomly dial seeds until we connect to one or exhaust them
+// randomly dial seeds until we connect to one or exhaust them.
 func (r *Reactor) dialSeeds() {
 	perm := cmtrand.Perm(len(r.seedAddrs))
 	// perm := r.Switch.rng.Perm(lSeeds)
@@ -647,12 +630,14 @@ func (r *Reactor) AttemptsToDial(addr *p2p.NetAddress) int {
 	return 0
 }
 
-//----------------------------------------------------------
+// ----------------------------------------------------------
 
 // Explores the network searching for more peers. (continuous)
 // Seed/Crawler Mode causes this node to quickly disconnect
 // from peers, except other seed nodes.
 func (r *Reactor) crawlPeersRoutine() {
+	defer r.peersRoutineWg.Done()
+
 	// If we have any seed nodes, consult them first
 	if len(r.seedAddrs) > 0 {
 		r.dialSeeds()
@@ -663,13 +648,15 @@ func (r *Reactor) crawlPeersRoutine() {
 
 	// Fire periodically
 	ticker := time.NewTicker(crawlPeerPeriod)
-
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			r.attemptDisconnects()
 			r.crawlPeers(r.book.GetSelection())
 			r.cleanupCrawlPeerInfos()
+		case <-r.book.Quit():
+			return
 		case <-r.Quit():
 			return
 		}
@@ -712,7 +699,7 @@ func (r *Reactor) crawlPeers(addrs []*p2p.NetAddress) {
 		err := r.dialPeer(addr)
 		if err != nil {
 			switch err.(type) {
-			case errMaxAttemptsToDial, errTooEarlyToDial, p2p.ErrCurrentlyDialingOrExistingAddress:
+			case ErrMaxAttemptsToDial, ErrTooEarlyToDial, p2p.ErrCurrentlyDialingOrExistingAddress:
 				r.Logger.Debug(err.Error(), "addr", addr)
 			default:
 				r.Logger.Debug(err.Error(), "addr", addr)
@@ -741,9 +728,9 @@ func (r *Reactor) cleanupCrawlPeerInfos() {
 	}
 }
 
-// attemptDisconnects checks if we've been with each peer long enough to disconnect
+// attemptDisconnects checks if we've been with each peer long enough to disconnect.
 func (r *Reactor) attemptDisconnects() {
-	for _, peer := range r.Switch.Peers().List() {
+	for _, peer := range r.Switch.Peers().Copy() {
 		if peer.Status().Duration < r.config.SeedDisconnectWaitPeriod {
 			continue
 		}

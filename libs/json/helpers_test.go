@@ -23,29 +23,31 @@ type Car struct {
 	Wheels int32
 }
 
-func (c *Car) Drive() error { return nil }
+func (*Car) Drive() error { return nil }
 
 // Boat is a value implementation of Vehicle.
 type Boat struct {
 	Sail bool
 }
 
-func (b Boat) Drive() error { return nil }
+func (Boat) Drive() error { return nil }
 
 // These are public and private encryption keys.
-type PublicKey [8]byte
-type PrivateKey [8]byte
+type (
+	PublicKey  [8]byte
+	PrivateKey [8]byte
+)
 
 // Custom has custom marshalers and unmarshalers, taking pointer receivers.
 type CustomPtr struct {
 	Value string
 }
 
-func (c *CustomPtr) MarshalJSON() ([]byte, error) {
+func (*CustomPtr) MarshalJSON() ([]byte, error) {
 	return []byte("\"custom\""), nil
 }
 
-func (c *CustomPtr) UnmarshalJSON(bz []byte) error {
+func (c *CustomPtr) UnmarshalJSON(_ []byte) error {
 	c.Value = "custom"
 	return nil
 }
@@ -56,11 +58,11 @@ type CustomValue struct {
 	Value string
 }
 
-func (c CustomValue) MarshalJSON() ([]byte, error) {
+func (CustomValue) MarshalJSON() ([]byte, error) {
 	return []byte("\"custom\""), nil
 }
 
-func (c CustomValue) UnmarshalJSON(bz []byte) error {
+func (CustomValue) UnmarshalJSON(_ []byte) error {
 	return nil
 }
 

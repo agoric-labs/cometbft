@@ -1,26 +1,52 @@
 package ed25519
 
 import (
-	"bytes"
-	"crypto/subtle"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 
-	"golang.org/x/crypto/ed25519"
+	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519"
+	"github.com/oasisprotocol/curve25519-voi/primitives/ed25519/extra/cache"
 
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/crypto/tmhash"
 	cmtjson "github.com/cometbft/cometbft/libs/json"
 )
 
-//-------------------------------------
+var (
+	ErrNotEd25519Key    = errors.New("ed25519: pubkey is not Ed25519")
+	ErrInvalidSignature = errors.New("ed25519: invalid signature")
+)
 
-var _ crypto.PrivKey = PrivKey{}
+// ErrInvalidKeyLen describes an error resulting from an passing in a
+// key with an invalid key in the call to [BatchVerifier.Add].
+type ErrInvalidKeyLen struct {
+	Got, Want int
+}
+
+func (e ErrInvalidKeyLen) Error() string {
+	return fmt.Sprintf("ed25519: invalid key length: got %d, want %d", e.Got, e.Want)
+}
+
+var (
+	_ crypto.PrivKey       = PrivKey{}
+	_ crypto.BatchVerifier = &BatchVerifier{}
+
+	// curve25519-voi's Ed25519 implementation supports configurable
+	// verification behavior, and CometBFT uses the ZIP-215 verification
+	// semantics.
+	verifyOptions = &ed25519.Options{
+		Verify: ed25519.VerifyOptionsZIP_215,
+	}
+
+	cachingVerifier = cache.NewVerifier(cache.NewLRUCache(cacheSize))
+)
 
 const (
 	PrivKeyName = "tendermint/PrivKeyEd25519"
 	PubKeyName  = "tendermint/PubKeyEd25519"
-	// PubKeySize is is the size, in bytes, of public keys as used in this package.
+	// PubKeySize is the size, in bytes, of public keys as used in this package.
 	PubKeySize = 32
 	// PrivateKeySize is the size, in bytes, of private keys as used in this package.
 	PrivateKeySize = 64
@@ -32,6 +58,14 @@ const (
 	SeedSize = 32
 
 	KeyType = "ed25519"
+
+	// cacheSize is the number of public keys that will be cached in
+	// an expanded format for repeated signature verification.
+	//
+	// TODO/perf: Either this should exclude single verification, or be
+	// tuned to `> validatorSize + maxTxnsPerBlock` to avoid cache
+	// thrashing.
+	cacheSize = 4096
 )
 
 func init() {
@@ -82,17 +116,7 @@ func (privKey PrivKey) PubKey() crypto.PubKey {
 	return PubKey(pubkeyBytes)
 }
 
-// Equals - you probably don't need to use this.
-// Runs in constant time based on length of the keys.
-func (privKey PrivKey) Equals(other crypto.PrivKey) bool {
-	if otherEd, ok := other.(PrivKey); ok {
-		return subtle.ConstantTimeCompare(privKey[:], otherEd[:]) == 1
-	}
-
-	return false
-}
-
-func (privKey PrivKey) Type() string {
+func (PrivKey) Type() string {
 	return KeyType
 }
 
@@ -105,14 +129,12 @@ func GenPrivKey() PrivKey {
 
 // genPrivKey generates a new ed25519 private key using the provided reader.
 func genPrivKey(rand io.Reader) PrivKey {
-	seed := make([]byte, SeedSize)
-
-	_, err := io.ReadFull(rand, seed)
+	_, priv, err := ed25519.GenerateKey(rand)
 	if err != nil {
 		panic(err)
 	}
 
-	return PrivKey(ed25519.NewKeyFromSeed(seed))
+	return PrivKey(priv)
 }
 
 // GenPrivKeyFromSecret hashes the secret with SHA2, and uses
@@ -120,16 +142,16 @@ func genPrivKey(rand io.Reader) PrivKey {
 // NOTE: secret should be the output of a KDF like bcrypt,
 // if it's derived from user input.
 func GenPrivKeyFromSecret(secret []byte) PrivKey {
-	seed := crypto.Sha256(secret) // Not Ripemd160 because we want 32 bytes.
+	seed := sha256.Sum256(secret) // Not Ripemd160 because we want 32 bytes.
 
-	return PrivKey(ed25519.NewKeyFromSeed(seed))
+	return PrivKey(ed25519.NewKeyFromSeed(seed[:]))
 }
 
-//-------------------------------------
+// -------------------------------------
 
 var _ crypto.PubKey = PubKey{}
 
-// PubKeyEd25519 implements crypto.PubKey for the Ed25519 signature scheme.
+// PubKey implements crypto.PubKey for the Ed25519 signature scheme.
 type PubKey []byte
 
 // Address is the SHA256-20 of the raw pubkey bytes.
@@ -151,21 +173,50 @@ func (pubKey PubKey) VerifySignature(msg []byte, sig []byte) bool {
 		return false
 	}
 
-	return ed25519.Verify(ed25519.PublicKey(pubKey), msg, sig)
+	return cachingVerifier.VerifyWithOptions(ed25519.PublicKey(pubKey), msg, sig, verifyOptions)
 }
 
 func (pubKey PubKey) String() string {
 	return fmt.Sprintf("PubKeyEd25519{%X}", []byte(pubKey))
 }
 
-func (pubKey PubKey) Type() string {
+func (PubKey) Type() string {
 	return KeyType
 }
 
-func (pubKey PubKey) Equals(other crypto.PubKey) bool {
-	if otherEd, ok := other.(PubKey); ok {
-		return bytes.Equal(pubKey[:], otherEd[:])
+// -------------------------------------
+
+// BatchVerifier implements batch verification for ed25519.
+type BatchVerifier struct {
+	*ed25519.BatchVerifier
+}
+
+func NewBatchVerifier() crypto.BatchVerifier {
+	return &BatchVerifier{ed25519.NewBatchVerifier()}
+}
+
+func (b *BatchVerifier) Add(key crypto.PubKey, msg, signature []byte) error {
+	pkEd, ok := key.(PubKey)
+	if !ok {
+		return ErrNotEd25519Key
 	}
 
-	return false
+	pkBytes := pkEd.Bytes()
+
+	if l := len(pkBytes); l != PubKeySize {
+		return ErrInvalidKeyLen{Got: l, Want: PubKeySize}
+	}
+
+	// check that the signature is the correct length
+	if len(signature) != SignatureSize {
+		return ErrInvalidSignature
+	}
+
+	cachingVerifier.AddWithOptions(b.BatchVerifier, ed25519.PublicKey(pkBytes), msg, signature, verifyOptions)
+
+	return nil
+}
+
+func (b *BatchVerifier) Verify() (bool, []bool) {
+	return b.BatchVerifier.Verify(crypto.CReader())
 }

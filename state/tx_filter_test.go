@@ -4,12 +4,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	dbm "github.com/cometbft/cometbft-db"
-
-	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	cmtrand "github.com/cometbft/cometbft/internal/rand"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
 )
@@ -41,9 +39,9 @@ func TestTxFilter(t *testing.T) {
 
 		f := sm.TxPreCheck(state)
 		if tc.isErr {
-			assert.NotNil(t, f(tc.tx), "#%v", i)
+			require.Error(t, f(tc.tx), "#%v", i)
 		} else {
-			assert.Nil(t, f(tc.tx), "#%v", i)
+			require.NoError(t, f(tc.tx), "#%v", i)
 		}
 	}
 }

@@ -48,8 +48,11 @@ type Manifest struct {
 	// Nodes specifies the network nodes. At least one node must be given.
 	Nodes map[string]*ManifestNode `toml:"node"`
 
+	// Disable the peer-exchange reactor on all nodes.
+	DisablePexReactor bool `toml:"disable_pex"`
+
 	// KeyType sets the curve that will be used by validators.
-	// Options are ed25519 & secp256k1
+	// Options are ed25519, secp256k1 and bls12381.
 	KeyType string `toml:"key_type"`
 
 	// Evidence indicates the amount of evidence that will be injected into the
@@ -57,9 +60,15 @@ type Manifest struct {
 	Evidence int `toml:"evidence"`
 
 	// ABCIProtocol specifies the protocol used to communicate with the ABCI
-	// application: "unix", "tcp", "grpc", or "builtin". Defaults to builtin.
-	// builtin will build a complete CometBFT node into the application and
-	// launch it instead of launching a separate CometBFT process.
+	// application: "unix", "tcp", "grpc", "builtin" or "builtin_connsync".
+	//
+	// Defaults to "builtin". "builtin" will build a complete CometBFT node
+	// into the application and launch it instead of launching a separate
+	// CometBFT process.
+	//
+	// "builtin_connsync" is basically the same as "builtin", except that it
+	// uses a "connection-synchronized" local client creator, which attempts to
+	// replicate the same concurrency model locally as the socket client.
 	ABCIProtocol string `toml:"abci_protocol"`
 
 	// Add artificial delays to each of the main ABCI calls to mimic computation time
@@ -67,7 +76,8 @@ type Manifest struct {
 	PrepareProposalDelay time.Duration `toml:"prepare_proposal_delay"`
 	ProcessProposalDelay time.Duration `toml:"process_proposal_delay"`
 	CheckTxDelay         time.Duration `toml:"check_tx_delay"`
-	// TODO: add vote extension and finalize block delay (@cmwaters)
+	VoteExtensionDelay   time.Duration `toml:"vote_extension_delay"`
+	FinalizeBlockDelay   time.Duration `toml:"finalize_block_delay"`
 
 	// UpgradeVersion specifies to which version nodes need to upgrade.
 	// Currently only uncoordinated upgrade is supported
@@ -76,14 +86,55 @@ type Manifest struct {
 	LoadTxSizeBytes   int `toml:"load_tx_size_bytes"`
 	LoadTxBatchSize   int `toml:"load_tx_batch_size"`
 	LoadTxConnections int `toml:"load_tx_connections"`
+	LoadMaxTxs        int `toml:"load_max_txs"`
 
 	// Enable or disable Prometheus metrics on all nodes.
 	// Defaults to false (disabled).
 	Prometheus bool `toml:"prometheus"`
 
+	// BlockMaxBytes specifies the maximum size in bytes of a block. This
+	// value will be written to the genesis file of all nodes.
+	BlockMaxBytes int64 `toml:"block_max_bytes"`
+
+	// Defines a minimum size for the vote extensions.
+	VoteExtensionSize uint `toml:"vote_extension_size"`
+
+	// VoteExtensionsEnableHeight configures the first height during which
+	// the chain will use and require vote extension data to be present
+	// in precommit messages.
+	VoteExtensionsEnableHeight int64 `toml:"vote_extensions_enable_height"`
+
+	// VoteExtensionsUpdateHeight configures the height at which consensus
+	// param VoteExtensionsEnableHeight will be set.
+	// -1 denotes it is set at genesis.
+	// 0 denotes it is set at InitChain.
+	VoteExtensionsUpdateHeight int64 `toml:"vote_extensions_update_height"`
+
+	// Upper bound of sleep duration then gossipping votes and block parts
+	PeerGossipIntraloopSleepDuration time.Duration `toml:"peer_gossip_intraloop_sleep_duration"`
+
 	// Maximum number of peers to which the node gossips transactions
 	ExperimentalMaxGossipConnectionsToPersistentPeers    uint `toml:"experimental_max_gossip_connections_to_persistent_peers"`
 	ExperimentalMaxGossipConnectionsToNonPersistentPeers uint `toml:"experimental_max_gossip_connections_to_non_persistent_peers"`
+
+	// Enable or disable e2e tests for CometBFT's expected behavior with respect
+	// to ABCI.
+	ABCITestsEnabled bool `toml:"abci_tests_enabled"`
+
+	// Default geographical zone ID for simulating latencies, assigned to nodes that don't have a
+	// specific zone assigned.
+	DefaultZone string `toml:"default_zone"`
+
+	// PbtsEnableHeight configures the first height during which
+	// the chain will start using Proposer-Based Timestamps (PBTS)
+	// to create and validate new blocks.
+	PbtsEnableHeight int64 `toml:"pbts_enable_height"`
+
+	// PbtsUpdateHeight configures the height at which consensus
+	// param PbtsEnableHeight will be set.
+	// -1 denotes it is set at genesis.
+	// 0 denotes it is set at InitChain.
+	PbtsUpdateHeight int64 `toml:"pbts_update_height"`
 }
 
 // ManifestNode represents a node in a testnet manifest.
@@ -109,8 +160,8 @@ type ManifestNode struct {
 	// this relates to the providers the light client is connected to.
 	PersistentPeers []string `toml:"persistent_peers"`
 
-	// Database specifies the database backend: "goleveldb", "cleveldb",
-	// "rocksdb", "boltdb", or "badgerdb". Defaults to goleveldb.
+	// Database specifies the database backend: "goleveldb", "rocksdb",
+	// "pebbledb" or "badgerdb". Defaults to "goleveldb".
 	Database string `toml:"database"`
 
 	// PrivvalProtocol specifies the protocol used to sign consensus messages:
@@ -123,16 +174,9 @@ type ManifestNode struct {
 	// runner will wait for the network to reach at least this block height.
 	StartAt int64 `toml:"start_at"`
 
-	// BlockSync specifies the block sync mode: "" (disable), "v0" or "v2".
-	// Defaults to disabled.
-	//
-	// Note that BlockSync will always be enabled in the next major release and the
-	// `block_sync` key will be removed from the config file.
-	BlockSync string `toml:"block_sync"`
-
-	// Mempool specifies which version of mempool to use. Either "v0" or "v1"
-	// This defaults to v0.
-	Mempool string `toml:"mempool_version"`
+	// BlockSyncVersion specifies which version of Block Sync to use (currently
+	// only "v0", the default value).
+	BlockSyncVersion string `toml:"block_sync_version"`
 
 	// StateSync enables state sync. The runner automatically configures trusted
 	// block hashes and RPC servers. At least one node in the network must have
@@ -150,9 +194,13 @@ type ManifestNode struct {
 	SnapshotInterval uint64 `toml:"snapshot_interval"`
 
 	// RetainBlocks specifies the number of recent blocks to retain. Defaults to
-	// 0, which retains all blocks. Must be greater that PersistInterval and
-	// SnapshotInterval.
+	// 0, which retains all blocks. Must be greater that PersistInterval,
+	// SnapshotInterval and EvidenceAgeHeight.
 	RetainBlocks uint64 `toml:"retain_blocks"`
+
+	// EnableCompanionPruning specifies whether or not storage pruning on the
+	// node should take a data companion into account.
+	EnableCompanionPruning bool `toml:"enable_companion_pruning"`
 
 	// Perturb lists perturbations to apply to the node after it has been
 	// started and synced with the network:
@@ -167,6 +215,27 @@ type ManifestNode struct {
 	// It defaults to false so unless the configured, the node will
 	// receive load.
 	SendNoLoad bool `toml:"send_no_load"`
+
+	// Geographical zone ID for simulating latencies.
+	Zone string `toml:"zone"`
+
+	// ExperimentalKeyLayout sets the key representation in the DB
+	ExperimentalKeyLayout string `toml:"experimental_db_key_layout"`
+
+	// Compact triggers compaction on the DB after pruning
+	Compact bool `toml:"compact"`
+
+	// CompactionInterval sets the number of blocks at which we trigger compaction
+	CompactionInterval int64 `toml:"compaction_interval"`
+
+	// DiscardABCIResponses disables abci rsponses
+	DiscardABCIResponses bool `toml:"discard_abci_responses"`
+
+	// Indexer sets the indexer, default kv
+	Indexer string `toml:"indexer"`
+
+	// Simulated clock skew for this node
+	ClockSkew time.Duration `toml:"clock_skew"`
 }
 
 // Save saves the testnet manifest to a file.

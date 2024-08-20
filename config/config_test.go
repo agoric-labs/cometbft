@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"reflect"
@@ -7,13 +7,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/cometbft/cometbft/config"
 )
 
 func TestDefaultConfig(t *testing.T) {
 	assert := assert.New(t)
 
 	// set up some defaults
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	assert.NotNil(cfg.P2P)
 	assert.NotNil(cfg.Mempool)
 	assert.NotNil(cfg.Consensus)
@@ -22,31 +24,28 @@ func TestDefaultConfig(t *testing.T) {
 	cfg.SetRoot("/foo")
 	cfg.Genesis = "bar"
 	cfg.DBPath = "/opt/data"
-	cfg.Mempool.WalPath = "wal/mem/"
 
 	assert.Equal("/foo/bar", cfg.GenesisFile())
 	assert.Equal("/opt/data", cfg.DBDir())
-	assert.Equal("/foo/wal/mem", cfg.Mempool.WalDir())
-
 }
 
 func TestConfigValidateBasic(t *testing.T) {
-	cfg := DefaultConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.DefaultConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	// tamper with timeout_propose
 	cfg.Consensus.TimeoutPropose = -10 * time.Second
-	assert.Error(t, cfg.ValidateBasic())
+	require.Error(t, cfg.ValidateBasic())
 	cfg.Consensus.TimeoutPropose = 3 * time.Second
 
 	cfg.Consensus.CreateEmptyBlocks = false
-	cfg.Mempool.Type = MempoolTypeNop
-	assert.Error(t, cfg.ValidateBasic())
+	cfg.Mempool.Type = config.MempoolTypeNop
+	require.Error(t, cfg.ValidateBasic())
 }
 
 func TestTLSConfiguration(t *testing.T) {
 	assert := assert.New(t)
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.SetRoot("/home/user")
 
 	cfg.RPC.TLSCertFile = "file.crt"
@@ -61,38 +60,67 @@ func TestTLSConfiguration(t *testing.T) {
 }
 
 func TestBaseConfigValidateBasic(t *testing.T) {
-	cfg := TestBaseConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.TestBaseConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	// tamper with log format
 	cfg.LogFormat = "invalid"
-	assert.Error(t, cfg.ValidateBasic())
+	require.Error(t, cfg.ValidateBasic())
+}
+
+func TestBaseConfigProxyApp_ValidateBasic(t *testing.T) {
+	testcases := map[string]struct {
+		proxyApp  string
+		expectErr bool
+	}{
+		"empty":                  {"", true},
+		"valid":                  {"kvstore", false},
+		"invalid static":         {"kvstore1", true},
+		"invalid tcp":            {"127.0.0.1", true},
+		"invalid tcp with proto": {"tcp://127.0.0.1", true},
+		"valid tcp":              {"tcp://127.0.0.1:80", false},
+		"invalid proto":          {"unix1://local", true},
+		"valid unix":             {"unix://local", false},
+	}
+	for desc, tc := range testcases {
+		t.Run(desc, func(t *testing.T) {
+			cfg := config.DefaultBaseConfig()
+			cfg.ProxyApp = tc.proxyApp
+
+			err := cfg.ValidateBasic()
+			if tc.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestRPCConfigValidateBasic(t *testing.T) {
-	cfg := TestRPCConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.TestRPCConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	fieldsToTest := []string{
-		"GRPCMaxOpenConnections",
 		"MaxOpenConnections",
 		"MaxSubscriptionClients",
 		"MaxSubscriptionsPerClient",
 		"TimeoutBroadcastTxCommit",
 		"MaxBodyBytes",
 		"MaxHeaderBytes",
+		"MaxRequestBatchSize",
 	}
 
 	for _, fieldName := range fieldsToTest {
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(-1)
-		assert.Error(t, cfg.ValidateBasic())
+		require.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
 }
 
 func TestP2PConfigValidateBasic(t *testing.T) {
-	cfg := TestP2PConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.TestP2PConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	fieldsToTest := []string{
 		"MaxNumInboundPeers",
@@ -105,14 +133,14 @@ func TestP2PConfigValidateBasic(t *testing.T) {
 
 	for _, fieldName := range fieldsToTest {
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(-1)
-		assert.Error(t, cfg.ValidateBasic())
+		require.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
 }
 
 func TestMempoolConfigValidateBasic(t *testing.T) {
-	cfg := TestMempoolConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.TestMempoolConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	fieldsToTest := []string{
 		"Size",
@@ -123,78 +151,95 @@ func TestMempoolConfigValidateBasic(t *testing.T) {
 
 	for _, fieldName := range fieldsToTest {
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(-1)
-		assert.Error(t, cfg.ValidateBasic())
+		require.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
 
 	reflect.ValueOf(cfg).Elem().FieldByName("Type").SetString("invalid")
-	assert.Error(t, cfg.ValidateBasic())
+	require.Error(t, cfg.ValidateBasic())
 }
 
 func TestStateSyncConfigValidateBasic(t *testing.T) {
-	cfg := TestStateSyncConfig()
+	cfg := config.TestStateSyncConfig()
 	require.NoError(t, cfg.ValidateBasic())
 }
 
 func TestBlockSyncConfigValidateBasic(t *testing.T) {
-	cfg := TestBlockSyncConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.TestBlockSyncConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	// tamper with version
 	cfg.Version = "v1"
-	assert.Error(t, cfg.ValidateBasic())
+	require.Error(t, cfg.ValidateBasic())
 
 	cfg.Version = "invalid"
-	assert.Error(t, cfg.ValidateBasic())
+	require.Error(t, cfg.ValidateBasic())
 }
 
 func TestConsensusConfig_ValidateBasic(t *testing.T) {
 	//nolint: lll
 	testcases := map[string]struct {
-		modify    func(*ConsensusConfig)
+		modify    func(*config.ConsensusConfig)
 		expectErr bool
 	}{
-		"TimeoutPropose":                       {func(c *ConsensusConfig) { c.TimeoutPropose = time.Second }, false},
-		"TimeoutPropose negative":              {func(c *ConsensusConfig) { c.TimeoutPropose = -1 }, true},
-		"TimeoutProposeDelta":                  {func(c *ConsensusConfig) { c.TimeoutProposeDelta = time.Second }, false},
-		"TimeoutProposeDelta negative":         {func(c *ConsensusConfig) { c.TimeoutProposeDelta = -1 }, true},
-		"TimeoutPrevote":                       {func(c *ConsensusConfig) { c.TimeoutPrevote = time.Second }, false},
-		"TimeoutPrevote negative":              {func(c *ConsensusConfig) { c.TimeoutPrevote = -1 }, true},
-		"TimeoutPrevoteDelta":                  {func(c *ConsensusConfig) { c.TimeoutPrevoteDelta = time.Second }, false},
-		"TimeoutPrevoteDelta negative":         {func(c *ConsensusConfig) { c.TimeoutPrevoteDelta = -1 }, true},
-		"TimeoutPrecommit":                     {func(c *ConsensusConfig) { c.TimeoutPrecommit = time.Second }, false},
-		"TimeoutPrecommit negative":            {func(c *ConsensusConfig) { c.TimeoutPrecommit = -1 }, true},
-		"TimeoutPrecommitDelta":                {func(c *ConsensusConfig) { c.TimeoutPrecommitDelta = time.Second }, false},
-		"TimeoutPrecommitDelta negative":       {func(c *ConsensusConfig) { c.TimeoutPrecommitDelta = -1 }, true},
-		"TimeoutCommit":                        {func(c *ConsensusConfig) { c.TimeoutCommit = time.Second }, false},
-		"TimeoutCommit negative":               {func(c *ConsensusConfig) { c.TimeoutCommit = -1 }, true},
-		"PeerGossipSleepDuration":              {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = time.Second }, false},
-		"PeerGossipSleepDuration negative":     {func(c *ConsensusConfig) { c.PeerGossipSleepDuration = -1 }, true},
-		"PeerQueryMaj23SleepDuration":          {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = time.Second }, false},
-		"PeerQueryMaj23SleepDuration negative": {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
-		"DoubleSignCheckHeight negative":       {func(c *ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
+		"TimeoutPropose":                       {func(c *config.ConsensusConfig) { c.TimeoutPropose = time.Second }, false},
+		"TimeoutPropose negative":              {func(c *config.ConsensusConfig) { c.TimeoutPropose = -1 }, true},
+		"TimeoutProposeDelta":                  {func(c *config.ConsensusConfig) { c.TimeoutProposeDelta = time.Second }, false},
+		"TimeoutProposeDelta negative":         {func(c *config.ConsensusConfig) { c.TimeoutProposeDelta = -1 }, true},
+		"TimeoutVote":                          {func(c *config.ConsensusConfig) { c.TimeoutVote = time.Second }, false},
+		"TimeoutVote negative":                 {func(c *config.ConsensusConfig) { c.TimeoutVote = -1 }, true},
+		"TimeoutVoteDelta":                     {func(c *config.ConsensusConfig) { c.TimeoutVoteDelta = time.Second }, false},
+		"TimeoutVoteDelta negative":            {func(c *config.ConsensusConfig) { c.TimeoutVoteDelta = -1 }, true},
+		"TimeoutCommit":                        {func(c *config.ConsensusConfig) { c.TimeoutCommit = time.Second }, false},
+		"TimeoutCommit negative":               {func(c *config.ConsensusConfig) { c.TimeoutCommit = -1 }, true},
+		"PeerGossipSleepDuration":              {func(c *config.ConsensusConfig) { c.PeerGossipSleepDuration = time.Second }, false},
+		"PeerGossipSleepDuration negative":     {func(c *config.ConsensusConfig) { c.PeerGossipSleepDuration = -1 }, true},
+		"PeerQueryMaj23SleepDuration":          {func(c *config.ConsensusConfig) { c.PeerQueryMaj23SleepDuration = time.Second }, false},
+		"PeerQueryMaj23SleepDuration negative": {func(c *config.ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
+		"DoubleSignCheckHeight negative":       {func(c *config.ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
 	}
 	for desc, tc := range testcases {
-		tc := tc // appease linter
 		t.Run(desc, func(t *testing.T) {
-			cfg := DefaultConsensusConfig()
+			cfg := config.DefaultConsensusConfig()
 			tc.modify(cfg)
 
 			err := cfg.ValidateBasic()
 			if tc.expectErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestInstrumentationConfigValidateBasic(t *testing.T) {
-	cfg := TestInstrumentationConfig()
-	assert.NoError(t, cfg.ValidateBasic())
+	cfg := config.TestInstrumentationConfig()
+	require.NoError(t, cfg.ValidateBasic())
 
 	// tamper with maximum open connections
 	cfg.MaxOpenConnections = -1
-	assert.Error(t, cfg.ValidateBasic())
+	require.Error(t, cfg.ValidateBasic())
+}
+
+func TestConfigPossibleMisconfigurations(t *testing.T) {
+	cfg := config.DefaultConfig()
+	require.Len(t, cfg.PossibleMisconfigurations(), 0)
+	// providing rpc_servers while enable = false is a possible misconfiguration
+	cfg.StateSync.RPCServers = []string{"first_rpc"}
+	require.Equal(t, []string{"[statesync] section: rpc_servers specified but enable = false"}, cfg.PossibleMisconfigurations())
+	// enabling statesync deletes possible misconfiguration
+	cfg.StateSync.Enable = true
+	require.Len(t, cfg.PossibleMisconfigurations(), 0)
+}
+
+func TestStateSyncPossibleMisconfigurations(t *testing.T) {
+	cfg := config.DefaultStateSyncConfig()
+	require.Len(t, cfg.PossibleMisconfigurations(), 0)
+	// providing rpc_servers while enable = false is a possible misconfiguration
+	cfg.RPCServers = []string{"first_rpc"}
+	require.Equal(t, []string{"rpc_servers specified but enable = false"}, cfg.PossibleMisconfigurations())
+	// enabling statesync deletes possible misconfiguration
+	cfg.Enable = true
+	require.Len(t, cfg.PossibleMisconfigurations(), 0)
 }

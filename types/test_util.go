@@ -2,16 +2,18 @@ package types
 
 import (
 	"fmt"
+	"testing"
 	"time"
 
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
+	"github.com/stretchr/testify/require"
+
+	cmtversion "github.com/cometbft/cometbft/api/cometbft/version/v1"
 	"github.com/cometbft/cometbft/version"
 )
 
-func MakeCommit(blockID BlockID, height int64, round int32,
-	voteSet *VoteSet, validators []PrivValidator, now time.Time) (*Commit, error) {
-
+func MakeExtCommit(blockID BlockID, height int64, round int32,
+	voteSet *VoteSet, validators []PrivValidator, now time.Time, extEnabled bool,
+) (*ExtendedCommit, error) {
 	// all sign
 	for i := 0; i < len(validators); i++ {
 		pubKey, err := validators[i].GetPubKey()
@@ -23,7 +25,7 @@ func MakeCommit(blockID BlockID, height int64, round int32,
 			ValidatorIndex:   int32(i),
 			Height:           height,
 			Round:            round,
-			Type:             cmtproto.PrecommitType,
+			Type:             PrecommitType,
 			BlockID:          blockID,
 			Timestamp:        now,
 		}
@@ -34,51 +36,73 @@ func MakeCommit(blockID BlockID, height int64, round int32,
 		}
 	}
 
-	return voteSet.MakeCommit(), nil
+	p := DefaultFeatureParams()
+	if extEnabled {
+		p.VoteExtensionsEnableHeight = height
+	}
+
+	return voteSet.MakeExtendedCommit(p), nil
 }
 
-func signAddVote(privVal PrivValidator, vote *Vote, voteSet *VoteSet) (signed bool, err error) {
-	v := vote.ToProto()
-	err = privVal.SignVote(voteSet.ChainID(), v)
-	if err != nil {
+func signAddVote(privVal PrivValidator, vote *Vote, voteSet *VoteSet) (bool, error) {
+	if vote.Type != voteSet.signedMsgType {
+		return false, fmt.Errorf("vote and voteset are of different types; %d != %d", vote.Type, voteSet.signedMsgType)
+	}
+	if _, err := SignAndCheckVote(vote, privVal, voteSet.ChainID(), voteSet.extensionsEnabled); err != nil {
 		return false, err
 	}
-	vote.Signature = v.Signature
 	return voteSet.AddVote(vote)
 }
 
 func MakeVote(
-	height int64,
-	blockID BlockID,
-	valSet *ValidatorSet,
-	privVal PrivValidator,
+	val PrivValidator,
 	chainID string,
-	now time.Time,
+	valIndex int32,
+	height int64,
+	round int32,
+	step SignedMsgType,
+	blockID BlockID,
+	votetime time.Time,
 ) (*Vote, error) {
-	pubKey, err := privVal.GetPubKey()
+	pubKey, err := val.GetPubKey()
 	if err != nil {
-		return nil, fmt.Errorf("can't get pubkey: %w", err)
-	}
-	addr := pubKey.Address()
-	idx, _ := valSet.GetByAddress(addr)
-	vote := &Vote{
-		ValidatorAddress: addr,
-		ValidatorIndex:   idx,
-		Height:           height,
-		Round:            0,
-		Timestamp:        now,
-		Type:             cmtproto.PrecommitType,
-		BlockID:          blockID,
-	}
-	v := vote.ToProto()
-
-	if err := privVal.SignVote(chainID, v); err != nil {
 		return nil, err
 	}
 
-	vote.Signature = v.Signature
+	vote := &Vote{
+		ValidatorAddress: pubKey.Address(),
+		ValidatorIndex:   valIndex,
+		Height:           height,
+		Round:            round,
+		Type:             step,
+		BlockID:          blockID,
+		Timestamp:        votetime,
+	}
+
+	extensionsEnabled := step == PrecommitType
+	if _, err := SignAndCheckVote(vote, val, chainID, extensionsEnabled); err != nil {
+		return nil, err
+	}
 
 	return vote, nil
+}
+
+func MakeVoteNoError(
+	t *testing.T,
+	val PrivValidator,
+	chainID string,
+	valIndex int32,
+	height int64,
+	round int32,
+	step SignedMsgType,
+	blockID BlockID,
+	time time.Time,
+) *Vote {
+	t.Helper()
+
+	vote, err := MakeVote(val, chainID, valIndex, height, round, step, blockID, time)
+	require.NoError(t, err)
+	return vote
 }
 
 // MakeBlock returns a new block with an empty header, except what can be

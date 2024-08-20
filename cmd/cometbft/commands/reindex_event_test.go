@@ -10,10 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	dbm "github.com/cometbft/cometbft-db"
-
 	abcitypes "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
-	protocmtstate "github.com/cometbft/cometbft/proto/tendermint/state"
+	"github.com/cometbft/cometbft/internal/test"
 	blockmocks "github.com/cometbft/cometbft/state/indexer/mocks"
 	"github.com/cometbft/cometbft/state/mocks"
 	txmocks "github.com/cometbft/cometbft/state/txindex/mocks"
@@ -28,7 +27,7 @@ const (
 func setupReIndexEventCmd() *cobra.Command {
 	reIndexEventCmd := &cobra.Command{
 		Use: ReIndexEventCmd.Use,
-		Run: func(cmd *cobra.Command, args []string) {},
+		Run: func(_ *cobra.Command, _ []string) {},
 	}
 
 	_ = reIndexEventCmd.ExecuteContext(context.Background())
@@ -98,7 +97,7 @@ func TestLoadEventSink(t *testing.T) {
 		cfg := cmtcfg.TestConfig()
 		cfg.TxIndex.Indexer = tc.sinks
 		cfg.TxIndex.PsqlConn = tc.connURL
-		_, _, err := loadEventSinks(cfg)
+		_, _, err := loadEventSinks(cfg, test.DefaultTestChainID)
 		if tc.loadErr {
 			require.Error(t, err, idx)
 		} else {
@@ -135,29 +134,28 @@ func TestReIndexEvent(t *testing.T) {
 	mockBlockStore.
 		On("Base").Return(base).
 		On("Height").Return(height).
-		On("LoadBlock", base).Return(nil).Once().
-		On("LoadBlock", base).Return(&types.Block{Data: types.Data{Txs: types.Txs{make(types.Tx, 1)}}}).
-		On("LoadBlock", height).Return(&types.Block{Data: types.Data{Txs: types.Txs{make(types.Tx, 1)}}})
+		On("LoadBlock", base).Return(nil, nil).Once().
+		On("LoadBlock", base).Return(&types.Block{Data: types.Data{Txs: types.Txs{make(types.Tx, 1)}}}, &types.BlockMeta{}).
+		On("LoadBlock", height).Return(&types.Block{Data: types.Data{Txs: types.Txs{make(types.Tx, 1)}}}, &types.BlockMeta{})
 
-	dtx := abcitypes.ResponseDeliverTx{}
-	abciResp := &protocmtstate.ABCIResponses{
-		DeliverTxs: []*abcitypes.ResponseDeliverTx{&dtx},
-		EndBlock:   &abcitypes.ResponseEndBlock{},
-		BeginBlock: &abcitypes.ResponseBeginBlock{},
+	abciResp := &abcitypes.FinalizeBlockResponse{
+		TxResults: []*abcitypes.ExecTxResult{
+			{Code: 1},
+		},
 	}
 
 	mockBlockIndexer.
-		On("Index", mock.AnythingOfType("types.EventDataNewBlockHeader")).Return(errors.New("")).Once().
-		On("Index", mock.AnythingOfType("types.EventDataNewBlockHeader")).Return(nil)
+		On("Index", mock.AnythingOfType("types.EventDataNewBlockEvents")).Return(errors.New("")).Once().
+		On("Index", mock.AnythingOfType("types.EventDataNewBlockEvents")).Return(nil)
 
 	mockTxIndexer.
 		On("AddBatch", mock.AnythingOfType("*txindex.Batch")).Return(errors.New("")).Once().
 		On("AddBatch", mock.AnythingOfType("*txindex.Batch")).Return(nil)
 
 	mockStateStore.
-		On("LoadABCIResponses", base).Return(nil, errors.New("")).Once().
-		On("LoadABCIResponses", base).Return(abciResp, nil).
-		On("LoadABCIResponses", height).Return(abciResp, nil)
+		On("LoadFinalizeBlockResponse", base).Return(nil, errors.New("")).Once().
+		On("LoadFinalizeBlockResponse", base).Return(abciResp, nil).
+		On("LoadFinalizeBlockResponse", height).Return(abciResp, nil)
 
 	testCases := []struct {
 		startHeight int64
@@ -165,7 +163,7 @@ func TestReIndexEvent(t *testing.T) {
 		reIndexErr  bool
 	}{
 		{base, height, true}, // LoadBlock error
-		{base, height, true}, // LoadABCIResponses error
+		{base, height, true}, // LoadFinalizeBlockResponse error
 		{base, height, true}, // index block event error
 		{base, height, true}, // index tx event error
 		{base, base, false},

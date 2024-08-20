@@ -2,13 +2,15 @@ package kv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
 
 	"github.com/google/orderedcode"
 
-	"github.com/cometbft/cometbft/libs/pubsub/query"
+	idxutil "github.com/cometbft/cometbft/internal/indexer"
+	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	"github.com/cometbft/cometbft/state/indexer"
 	"github.com/cometbft/cometbft/types"
 )
@@ -50,13 +52,59 @@ func heightKey(height int64) ([]byte, error) {
 	)
 }
 
-func eventKey(compositeKey, typ, eventValue string, height int64, eventSeq int64) ([]byte, error) {
+// keyBelongsToHeightRange checks whether the passed key  belongs to the specified height range.
+// That might not be the case for two reasons: the key belongs to the height out of the specified range,
+// or the key doesn't belong to any height, meaning it's neither heightKey nor eventKey.
+func keyBelongsToHeightRange(key []byte, left, right int64) bool {
+	// left included, right excluded
+	eventHeight, err := parseHeightFromEventKey(key)
+	if err == nil {
+		return left <= eventHeight && eventHeight < right
+	}
+
+	var (
+		blockHeightKeyPrefix string
+		possibleHeight       int64
+	)
+	remaining, err := orderedcode.Parse(string(key), &blockHeightKeyPrefix, &possibleHeight)
+	if err != nil {
+		return false
+	}
+	return len(remaining) == 0 &&
+		blockHeightKeyPrefix == types.BlockHeightKey &&
+		left <= possibleHeight &&
+		possibleHeight < right
+}
+
+// getHeightFromKey requires its argument key to be the key with height (either heightKey or eventKey).
+// Provided that, it extracts the height.
+func getHeightFromKey(key []byte) int64 {
+	// Must be called with either heightKey or eventKey
+	eventHeight, err := parseHeightFromEventKey(key)
+	if err == nil {
+		return eventHeight
+	}
+
+	var (
+		blockHeightKeyPrefix string
+		possibleHeight       int64
+	)
+	remaining, err := orderedcode.Parse(string(key), &blockHeightKeyPrefix, &possibleHeight)
+	if err != nil {
+		panic(err)
+	}
+	if len(remaining) == 0 && blockHeightKeyPrefix == types.BlockHeightKey {
+		return possibleHeight
+	}
+	panic(errors.New("key must be either heightKey or eventKey"))
+}
+
+func eventKey(compositeKey, eventValue string, height int64, eventSeq int64) ([]byte, error) {
 	return orderedcode.Append(
 		nil,
 		compositeKey,
 		eventValue,
 		height,
-		typ,
 		eventSeq,
 	)
 }
@@ -81,11 +129,11 @@ func parseValueFromPrimaryKey(key []byte) (string, error) {
 
 func parseValueFromEventKey(key []byte) (string, error) {
 	var (
-		compositeKey, typ, eventValue string
-		height                        int64
+		compositeKey, eventValue string
+		height                   int64
 	)
 
-	_, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height, &typ)
+	_, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse event key: %w", err)
 	}
@@ -95,11 +143,11 @@ func parseValueFromEventKey(key []byte) (string, error) {
 
 func parseHeightFromEventKey(key []byte) (int64, error) {
 	var (
-		compositeKey, typ, eventValue string
-		height                        int64
+		compositeKey, eventValue string
+		height                   int64
 	)
 
-	_, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height, &typ)
+	_, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height)
 	if err != nil {
 		return -1, fmt.Errorf("failed to parse event key: %w", err)
 	}
@@ -109,48 +157,65 @@ func parseHeightFromEventKey(key []byte) (int64, error) {
 
 func parseEventSeqFromEventKey(key []byte) (int64, error) {
 	var (
-		compositeKey, typ, eventValue string
-		height                        int64
-		eventSeq                      int64
+		compositeKey, eventValue string
+		height                   int64
+		eventSeq                 int64
 	)
 
-	remaining, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height, &typ)
+	remaining, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse event key: %w", err)
+		return 0, fmt.Errorf("failed to parse event sequence: %w", err)
 	}
 
-	// This is done to support previous versions that did not have event sequence in their key
-	if len(remaining) != 0 {
-		remaining, err = orderedcode.Parse(remaining, &eventSeq)
-		if err != nil {
-			return 0, fmt.Errorf("failed to parse event key: %w", err)
+	// We either have an event sequence or a function type (potentially) followed by an event sequence.
+	// Potential scenarios:
+	// 1. Events indexed with v0.38.x and later, will only have an event sequence
+	// 2. Events indexed between v0.34.27 and v0.37.x will have a function type and an event sequence
+	// 3. Events indexed before v0.34.27 will only have a function type
+	// function_type = 'being_block_event' | 'end_block_event'
+
+	if len(remaining) == 0 { // The event was not properly indexed
+		return 0, errors.New("failed to parse event sequence, invalid event format")
+	}
+	var typ string
+	remaining2, err := orderedcode.Parse(remaining, &typ) // Check if we have scenarios 2. or 3. (described above).
+	if err != nil {                                       // If it cannot parse the event function type, it could be 1.
+		remaining, err2 := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height, &eventSeq)
+		if err2 != nil || len(remaining) != 0 { // We should not have anything else after the eventSeq.
+			return 0, fmt.Errorf("failed to parse event sequence: %w; and %w", err, err2)
 		}
-		if len(remaining) != 0 {
-			return 0, fmt.Errorf("unexpected remainder in key: %s", remaining)
+	} else if len(remaining2) != 0 { // Are we in case 2 or 3
+		remaining, err2 := orderedcode.Parse(remaining2, &eventSeq) // the event follows the scenario in 2.,
+		// retrieve the eventSeq
+		// there should be no error
+		if err2 != nil || len(remaining) != 0 { // We should not have anything else after the eventSeq if in 2.
+			return 0, fmt.Errorf("failed to parse event sequence: %w", err2)
 		}
 	}
-
 	return eventSeq, nil
 }
 
 // Remove all occurrences of height equality queries except one. While we are traversing the conditions, check whether the only condition in
 // addition to match events is the height equality or height range query. At the same time, if we do have a height range condition
 // ignore the height equality condition. If a height equality exists, place the condition index in the query and the desired height
-// into the heightInfo struct
-func dedupHeight(conditions []query.Condition) (dedupConditions []query.Condition, heightInfo HeightInfo, found bool) {
+// into the heightInfo struct.
+func dedupHeight(conditions []syntax.Condition) (dedupConditions []syntax.Condition, heightInfo HeightInfo, found bool) {
 	heightInfo.heightEqIdx = -1
 	heightRangeExists := false
-	var heightCondition []query.Condition
+	var heightCondition []syntax.Condition
 	heightInfo.onlyHeightEq = true
 	heightInfo.onlyHeightRange = true
 	for _, c := range conditions {
-		if c.CompositeKey == types.BlockHeightKey {
-			if c.Op == query.OpEqual {
+		if c.Tag == types.BlockHeightKey {
+			if c.Op == syntax.TEq {
 				if found || heightRangeExists {
 					continue
-				} else {
+				}
+				hFloat := c.Arg.Number()
+				if hFloat != nil {
+					h, _ := hFloat.Int64()
+					heightInfo.height = h
 					heightCondition = append(heightCondition, c)
-					heightInfo.height = c.Operand.(*big.Int).Int64() // As height is assumed to always be int64
 					found = true
 				}
 			} else {
@@ -179,26 +244,15 @@ func dedupHeight(conditions []query.Condition) (dedupConditions []query.Conditio
 	return dedupConditions, heightInfo, found
 }
 
-func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) bool {
+func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) (bool, error) {
 	if heightInfo.heightRange.Key != "" {
-		if !checkBounds(heightInfo.heightRange, big.NewInt(keyHeight)) {
-			return false
+		withinBounds, err := idxutil.CheckBounds(heightInfo.heightRange, big.NewInt(keyHeight))
+		if err != nil || !withinBounds {
+			return false, err
 		}
-	} else {
-		if heightInfo.height != 0 && keyHeight != heightInfo.height {
-			return false
-		}
-	}
-	return true
-}
-
-//nolint:unused,deadcode
-func lookForHeight(conditions []query.Condition) (int64, bool, int) {
-	for i, c := range conditions {
-		if c.CompositeKey == types.BlockHeightKey && c.Op == query.OpEqual {
-			return c.Operand.(int64), true, i
-		}
+	} else if heightInfo.height != 0 && keyHeight != heightInfo.height {
+		return false, nil
 	}
 
-	return 0, false, -1
+	return true, nil
 }

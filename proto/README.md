@@ -1,7 +1,10 @@
-<!-- NB: Ensure that all hyperlinks in this doc are absolute URLs, not relative
-ones, as this doc gets published to the Buf registry and relative URLs will fail
-to resolve. -->
-# CometBFT v0.37.x Protocol Buffers Definitions
+[NB]: # (
+  Ensure that all hyperlinks in this doc are absolute URLs, not relative ones,
+  as this doc gets published to the Buf registry and relative URLs will fail
+  to resolve.
+)
+
+# CometBFT Protocol Buffers Definitions
 
 This is the set of [Protobuf][protobuf] definitions of types used by various
 parts of [CometBFT]:
@@ -18,9 +21,39 @@ parts of [CometBFT]:
 
 The canonical Protobuf definitions live in the `proto` folder of the relevant
 release branch of CometBFT. These definitions are published to the [Buf
-registry][buf] for integrators' convenience.
+registry][buf] for integrators' convenience. For detailed instructions on how to publish
+the files to the Buf registry, please refer to the [RELEASES.md](../RELEASES.md) document.
 
-## Why does CometBFT use `tendermint` Protobuf definitions?
+The Protobuf files are organized under two domains: `cometbft` and `tendermint`.
+The `cometbft.*` packages use version suffixes to let application developers
+target versions of the protocols as they have evolved between CometBFT releases.
+
+## Which CometBFT release does each package belong to?
+
+By the 1.0.0 release, the entire set of Protobuf definitions used by CometBFT
+is published in packages suffixed with `.v1`. Earlier revisions of the
+definitions, where they differed, are provided alongside in `.v1beta`_N_
+packages. The correspondence between package suffixes and releases is as follows:
+
+| Domain          | 0.34      | 0.37      | 0.38      | 1.0  |
+|-----------------|-----------|-----------|-----------|------|
+| `abci`          | `v1beta1` | `v1beta2` | `v1beta3` | `v1` |
+| `blocksync`     |           | `v1beta1` | `v1`      | `v1` |
+| `consensus`     | `v1beta1` | `v1beta1` | `v1beta1` | `v1` |
+| `crypto`        | `v1`      | `v1`      | `v1`      | `v1` |
+| `libs/bits`     | `v1`      | `v1`      | `v1`      | `v1` |
+| `mempool`       | `v1`      | `v1`      | `v1`      | `v1` |
+| `p2p`           | `v1`      | `v1`      | `v1`      | `v1` |
+| `privval`       | `v1beta1` | `v1beta1` | `v1beta2` | `v1` |
+| `rpc/grpc`[^1]  | `v1beta1` | `v1beta2` | `v1beta3` |      |
+| `state`         | `v1beta1` | `v1beta2` | `v1beta3` | `v1` |
+| `statesync`     | `v1`      | `v1`      | `v1`      | `v1` |
+| `types`         | `v1beta1` | `v1beta2` | `v1`      | `v1` |
+| `version`       | `v1`      | `v1`      | `v1`      | `v1` |
+
+[^1]: Retired in 1.0
+
+## Why does CometBFT provide `tendermint` Protobuf definitions?
 
 This is as a result of CometBFT being a fork of [Tendermint Core][tmcore] and
 wanting to provide integrators with as painless a way as possible of
@@ -29,12 +62,8 @@ transitioning from Tendermint Core to CometBFT.
 As of CometBFT v1, however, the project will transition to using and providing a
 `cometbft` package of Protobuf definitions (see [\#1330]).
 
-## How are `tendermint` Protobuf definitions versioned?
-
-At present, the canonical source of Protobuf definitions for all CometBFT v0.x
-releases is on each respective release branch. Each respective release's
-Protobuf definitions are also, for convenience, published to a corresponding
-branch in the `tendermint/tendermint` Buf repository.
+Protobuf definitions for each respective release are also, for convenience,
+published to a corresponding branch in the `tendermint/tendermint` Buf repository.
 
 | CometBFT version | Canonical Protobufs                         | Buf registry                              |
 |------------------|---------------------------------------------|-------------------------------------------|
@@ -44,7 +73,7 @@ branch in the `tendermint/tendermint` Buf repository.
 
 [protobuf]: https://protobuf.dev/
 [CometBFT]: https://github.com/cometbft/cometbft
-[abci]: https://github.com/cometbft/cometbft/tree/v0.37.x/spec/abci
+[abci]: https://github.com/cometbft/cometbft/tree/main/spec/abci
 [buf]: https://buf.build/tendermint/tendermint
 [tmcore]: https://github.com/tendermint/tendermint
 [\#1330]: https://github.com/cometbft/cometbft/issues/1330

@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 
@@ -32,9 +31,9 @@ func NewProxy(
 	logger log.Logger,
 	opts ...lrpc.Option,
 ) (*Proxy, error) {
-	rpcClient, err := rpchttp.NewWithTimeout(providerAddr, "/websocket", uint(config.WriteTimeout.Seconds()))
+	rpcClient, err := rpchttp.NewWithTimeout(providerAddr, uint(config.WriteTimeout.Seconds()))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create http client for %s: %w", providerAddr, err)
+		return nil, ErrCreateHTTPClient{Addr: providerAddr, Err: err}
 	}
 
 	return &Proxy{
@@ -104,16 +103,17 @@ func (p *Proxy) listen() (net.Listener, *http.ServeMux, error) {
 	)
 	wm.SetLogger(wmLogger)
 	mux.HandleFunc("/websocket", wm.WebsocketHandler)
+	mux.HandleFunc("/v1/websocket", wm.WebsocketHandler)
 
 	// 3) Start a client.
 	if !p.Client.IsRunning() {
 		if err := p.Client.Start(); err != nil {
-			return nil, mux, fmt.Errorf("can't start client: %w", err)
+			return nil, mux, ErrStartHTTPClient{Err: err}
 		}
 	}
 
 	// 4) Start listening for new connections.
-	listener, err := rpcserver.Listen(p.Addr, p.Config)
+	listener, err := rpcserver.Listen(p.Addr, p.Config.MaxOpenConnections)
 	if err != nil {
 		return nil, mux, err
 	}

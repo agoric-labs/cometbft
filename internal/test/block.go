@@ -8,7 +8,6 @@ import (
 
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/crypto/tmhash"
-	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/types"
 	"github.com/cometbft/cometbft/version"
 )
@@ -17,9 +16,7 @@ const (
 	DefaultTestChainID = "test-chain"
 )
 
-var (
-	DefaultTestTime = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-)
+var DefaultTestTime = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func RandomAddress() []byte {
 	return crypto.CRandBytes(crypto.AddressSize)
@@ -44,7 +41,7 @@ func MakeBlockIDWithHash(hash []byte) types.BlockID {
 }
 
 // MakeHeader fills the rest of the contents of the header such that it passes
-// validate basic
+// validate basic.
 func MakeHeader(t *testing.T, h *types.Header) *types.Header {
 	t.Helper()
 	if h.Version.Block == 0 {
@@ -53,7 +50,7 @@ func MakeHeader(t *testing.T, h *types.Header) *types.Header {
 	if h.Height == 0 {
 		h.Height = 1
 	}
-	if h.LastBlockID.IsZero() {
+	if h.LastBlockID.IsNil() {
 		h.LastBlockID = MakeBlockID()
 	}
 	if h.ChainID == "" {
@@ -90,34 +87,4 @@ func MakeHeader(t *testing.T, h *types.Header) *types.Header {
 	require.NoError(t, h.ValidateBasic())
 
 	return h
-}
-
-func MakeBlock(state sm.State) *types.Block {
-	return state.MakeBlock(state.LastBlockHeight+1, MakeNTxs(state.LastBlockHeight+1, 10), new(types.Commit), nil, state.NextValidators.Proposer.Address)
-}
-
-func MakeBlocks(n int, state sm.State, privVals []types.PrivValidator) ([]*types.Block, error) {
-	blockID := MakeBlockID()
-	blocks := make([]*types.Block, n)
-
-	for i := 0; i < n; i++ {
-		height := state.LastBlockHeight + 1 + int64(i)
-		lastCommit, err := MakeCommit(blockID, height-1, 0, state.LastValidators, privVals, state.ChainID, state.LastBlockTime)
-		if err != nil {
-			return nil, err
-		}
-		block := state.MakeBlock(height, MakeNTxs(height, 10), lastCommit, nil, state.LastValidators.Proposer.Address)
-		blocks[i] = block
-		state.LastBlockID = blockID
-		state.LastBlockHeight = height
-		state.LastBlockTime = state.LastBlockTime.Add(1 * time.Second)
-		state.LastValidators = state.Validators.Copy()
-		state.Validators = state.NextValidators.Copy()
-		state.NextValidators = state.NextValidators.CopyIncrementProposerPriority(1)
-		state.AppHash = RandomHash()
-
-		blockID = MakeBlockIDWithHash(block.Hash())
-	}
-
-	return blocks, nil
 }

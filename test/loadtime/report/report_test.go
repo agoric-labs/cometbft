@@ -4,11 +4,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/cometbft/cometbft/test/loadtime/payload"
 	"github.com/cometbft/cometbft/test/loadtime/report"
 	"github.com/cometbft/cometbft/types"
-	"github.com/google/uuid"
-	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+const (
+	testPartSize = 65536
 )
 
 type mockBlockStore struct {
@@ -24,8 +29,14 @@ func (m *mockBlockStore) Base() int64 {
 	return m.base
 }
 
-func (m *mockBlockStore) LoadBlock(i int64) *types.Block {
-	return m.blocks[i-m.base]
+func (m *mockBlockStore) LoadBlock(i int64) (*types.Block, *types.BlockMeta) {
+	block := m.blocks[i-m.base]
+	partSet, err := block.MakePartSet(testPartSize)
+	if err != nil {
+		panic("could not create a part set")
+	}
+	blockMeta := types.NewBlockMeta(block, partSet)
+	return block, blockMeta
 }
 
 func TestGenerateReport(t *testing.T) {

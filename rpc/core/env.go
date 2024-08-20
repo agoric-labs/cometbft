@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	abcicli "github.com/cometbft/cometbft/abci/client"
 	cfg "github.com/cometbft/cometbft/config"
-	"github.com/cometbft/cometbft/consensus"
 	"github.com/cometbft/cometbft/crypto"
 	cmtjson "github.com/cometbft/cometbft/libs/json"
 	"github.com/cometbft/cometbft/libs/log"
@@ -20,31 +20,19 @@ import (
 )
 
 const (
-	// see README
+	// see README.
 	defaultPerPage = 30
 	maxPerPage     = 100
 
 	// SubscribeTimeout is the maximum time we wait to subscribe for an event.
-	// must be less than the server's write timeout (see rpcserver.DefaultConfig)
+	// must be less than the server's write timeout (see rpcserver.DefaultConfig).
 	SubscribeTimeout = 5 * time.Second
 
 	// genesisChunkSize is the maximum size, in bytes, of each
-	// chunk in the genesis structure for the chunked API
+	// chunk in the genesis structure for the chunked API.
 	genesisChunkSize = 16 * 1024 * 1024 // 16
 )
 
-var (
-	// set by Node
-	env *Environment
-)
-
-// SetEnvironment sets up the given Environment.
-// It will race if multiple Node call SetEnvironment.
-func SetEnvironment(e *Environment) {
-	env = e
-}
-
-//----------------------------------------------
 // These interfaces are used by RPC and must be thread safe
 
 type Consensus interface {
@@ -62,14 +50,23 @@ type transport interface {
 }
 
 type peers interface {
-	AddPersistentPeers([]string) error
-	AddUnconditionalPeerIDs([]string) error
-	AddPrivatePeerIDs([]string) error
-	DialPeersAsync([]string) error
+	AddPersistentPeers(peers []string) error
+	AddUnconditionalPeerIDs(peerIDs []string) error
+	AddPrivatePeerIDs(peerIDs []string) error
+	DialPeersAsync(peers []string) error
 	Peers() p2p.IPeerSet
 }
 
-// ----------------------------------------------
+// A reactor that transitions from block sync or state sync to consensus mode.
+type syncReactor interface {
+	WaitSync() bool
+}
+
+type mempoolReactor interface {
+	syncReactor
+	TryAddTx(tx types.Tx, sender p2p.Peer) (*abcicli.ReqRes, error)
+}
+
 // Environment contains objects and interfaces used by the RPC. It is expected
 // to be setup once during startup.
 type Environment struct {
@@ -78,21 +75,22 @@ type Environment struct {
 	ProxyAppMempool proxy.AppConnMempool
 
 	// interfaces defined in types and above
-	StateStore     sm.Store
-	BlockStore     sm.BlockStore
-	EvidencePool   sm.EvidencePool
-	ConsensusState Consensus
-	P2PPeers       peers
-	P2PTransport   transport
+	StateStore       sm.Store
+	BlockStore       sm.BlockStore
+	EvidencePool     sm.EvidencePool
+	ConsensusState   Consensus
+	ConsensusReactor syncReactor
+	MempoolReactor   mempoolReactor
+	P2PPeers         peers
+	P2PTransport     transport
 
 	// objects
-	PubKey           crypto.PubKey
-	GenDoc           *types.GenesisDoc // cache the genesis structure
-	TxIndexer        txindex.TxIndexer
-	BlockIndexer     indexer.BlockIndexer
-	ConsensusReactor *consensus.Reactor
-	EventBus         *types.EventBus // thread safe
-	Mempool          mempl.Mempool
+	PubKey       crypto.PubKey
+	GenDoc       *types.GenesisDoc // cache the genesis structure
+	TxIndexer    txindex.TxIndexer
+	BlockIndexer indexer.BlockIndexer
+	EventBus     *types.EventBus // thread safe
+	Mempool      mempl.Mempool
 
 	Logger log.Logger
 
@@ -101,8 +99,6 @@ type Environment struct {
 	// cache of chunked genesis data.
 	genChunks []string
 }
-
-//----------------------------------------------
 
 func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 	if perPage < 1 {
@@ -125,7 +121,7 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 	return page, nil
 }
 
-func validatePerPage(perPagePtr *int) int {
+func (*Environment) validatePerPage(perPagePtr *int) int {
 	if perPagePtr == nil { // no per_page parameter
 		return defaultPerPage
 	}
@@ -141,7 +137,7 @@ func validatePerPage(perPagePtr *int) int {
 
 // InitGenesisChunks configures the environment and should be called on service
 // startup.
-func InitGenesisChunks() error {
+func (env *Environment) InitGenesisChunks() error {
 	if env.genChunks != nil {
 		return nil
 	}
@@ -178,7 +174,7 @@ func validateSkipCount(page, perPage int) int {
 }
 
 // latestHeight can be either latest committed or uncommitted (+1) height.
-func getHeight(latestHeight int64, heightPtr *int64) (int64, error) {
+func (env *Environment) getHeight(latestHeight int64, heightPtr *int64) (int64, error) {
 	if heightPtr != nil {
 		height := *heightPtr
 		if height <= 0 {
@@ -198,7 +194,7 @@ func getHeight(latestHeight int64, heightPtr *int64) (int64, error) {
 	return latestHeight, nil
 }
 
-func latestUncommittedHeight() int64 {
+func (env *Environment) latestUncommittedHeight() int64 {
 	nodeIsSyncing := env.ConsensusReactor.WaitSync()
 	if nodeIsSyncing {
 		return env.BlockStore.Height()

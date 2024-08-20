@@ -3,17 +3,15 @@ package test
 import (
 	"time"
 
-	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/types"
 )
 
 func GenesisDoc(
-	config *cfg.Config,
 	time time.Time,
 	validators []*types.Validator,
 	consensusParams *types.ConsensusParams,
+	chainID string,
 ) *types.GenesisDoc {
-
 	genesisValidators := make([]types.GenesisValidator, len(validators))
 
 	for i := range validators {
@@ -26,7 +24,7 @@ func GenesisDoc(
 	return &types.GenesisDoc{
 		GenesisTime:     time,
 		InitialHeight:   1,
-		ChainID:         config.ChainID(),
+		ChainID:         chainID,
 		Validators:      genesisValidators,
 		ConsensusParams: consensusParams,
 	}

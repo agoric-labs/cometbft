@@ -97,10 +97,7 @@ func iotest(writer protoio.WriteCloser, reader protoio.ReadCloser) error {
 	if i != size {
 		panic("not enough messages read")
 	}
-	if err := reader.Close(); err != nil {
-		return err
-	}
-	return nil
+	return reader.Close()
 }
 
 type buffer struct {
@@ -134,7 +131,7 @@ func TestVarintNoClose(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// issue 32
+// issue 32.
 func TestVarintMaxSize(t *testing.T) {
 	buf := newBuffer()
 	writer := protoio.NewDelimitedWriter(buf)

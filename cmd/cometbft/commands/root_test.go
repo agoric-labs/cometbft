@@ -13,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cfg "github.com/cometbft/cometbft/config"
+	cmtos "github.com/cometbft/cometbft/internal/os"
 	"github.com/cometbft/cometbft/libs/cli"
-	cmtos "github.com/cometbft/cometbft/libs/os"
 )
 
 // clearConfig clears env vars, the given root dir, and resets viper.
 func clearConfig(t *testing.T, dir string) {
+	t.Helper()
 	os.Clearenv()
 	err := os.RemoveAll(dir)
 	require.NoError(t, err)
@@ -27,12 +28,12 @@ func clearConfig(t *testing.T, dir string) {
 	config = cfg.DefaultConfig()
 }
 
-// prepare new rootCmd
+// prepare new rootCmd.
 func testRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:               RootCmd.Use,
 		PersistentPreRunE: RootCmd.PersistentPreRunE,
-		Run:               func(cmd *cobra.Command, args []string) {},
+		Run:               func(_ *cobra.Command, _ []string) {},
 	}
 	registerFlagsRootCmd(rootCmd)
 	var l string
@@ -41,6 +42,7 @@ func testRootCmd() *cobra.Command {
 }
 
 func testSetup(t *testing.T, root string, args []string, env map[string]string) error {
+	t.Helper()
 	clearConfig(t, root)
 
 	rootCmd := testRootCmd()
@@ -65,7 +67,7 @@ func TestRootHome(t *testing.T) {
 	}{
 		{nil, nil, root},
 		{[]string{"--home", newRoot}, nil, newRoot},
-		{nil, map[string]string{"TMHOME": newRoot}, newRoot}, //XXX: Deprecated.
+		{nil, map[string]string{"TMHOME": newRoot}, newRoot}, // XXX: Deprecated.
 		{nil, map[string]string{"CMTHOME": newRoot}, newRoot},
 	}
 
@@ -73,7 +75,7 @@ func TestRootHome(t *testing.T) {
 		idxString := "idx: " + strconv.Itoa(i)
 
 		err := testSetup(t, root, tc.args, tc.env)
-		require.Nil(t, err, idxString)
+		require.NoError(t, err, idxString)
 
 		assert.Equal(t, tc.root, config.RootDir, idxString)
 		assert.Equal(t, tc.root, config.P2P.RootDir, idxString)
@@ -83,7 +85,6 @@ func TestRootHome(t *testing.T) {
 }
 
 func TestRootFlagsEnv(t *testing.T) {
-
 	// defaults
 	defaults := cfg.DefaultConfig()
 	defaultLogLvl := defaults.LogLevel
@@ -109,14 +110,13 @@ func TestRootFlagsEnv(t *testing.T) {
 		idxString = "idx: " + idxString
 		defer clearConfig(t, root)
 		err := testSetup(t, root, tc.args, tc.env)
-		require.Nil(t, err, idxString)
+		require.NoError(t, err, idxString)
 
 		assert.Equal(t, tc.logLevel, config.LogLevel, idxString)
 	}
 }
 
 func TestRootConfig(t *testing.T) {
-
 	// write non-default config
 	nonDefaultLogLvl := "abc:debug"
 	cvals := map[string]string{
@@ -143,12 +143,12 @@ func TestRootConfig(t *testing.T) {
 		// XXX: path must match cfg.defaultConfigPath
 		configFilePath := filepath.Join(root, "config")
 		err := cmtos.EnsureDir(configFilePath, 0o700)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		// write the non-defaults to a different path
 		// TODO: support writing sub configs so we can test that too
 		err = WriteConfigVals(configFilePath, cvals)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		rootCmd := testRootCmd()
 		cmd := cli.PrepareBaseCmd(rootCmd, "CMT", root)
@@ -156,7 +156,7 @@ func TestRootConfig(t *testing.T) {
 		// run with the args and env
 		tc.args = append([]string{rootCmd.Use}, tc.args...)
 		err = cli.RunWithArgs(cmd, tc.args, tc.env)
-		require.Nil(t, err, idxString)
+		require.NoError(t, err, idxString)
 
 		assert.Equal(t, tc.logLvl, config.LogLevel, idxString)
 	}
@@ -170,5 +170,5 @@ func WriteConfigVals(dir string, vals map[string]string) error {
 		data += fmt.Sprintf("%s = \"%s\"\n", k, v)
 	}
 	cfile := filepath.Join(dir, "config.toml")
-	return os.WriteFile(cfile, []byte(data), 0600)
+	return os.WriteFile(cfile, []byte(data), 0o600)
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	cmd "github.com/cometbft/cometbft/cmd/cometbft/commands"
+	"github.com/cometbft/cometbft/cmd/cometbft/commands/config"
 	"github.com/cometbft/cometbft/cmd/cometbft/commands/debug"
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/cli"
@@ -17,8 +18,6 @@ func main() {
 		cmd.GenValidatorCmd,
 		cmd.InitFilesCmd,
 		cmd.LightCmd,
-		cmd.ReplayCmd,
-		cmd.ReplayConsoleCmd,
 		cmd.ResetAllCmd,
 		cmd.ResetPrivValidatorCmd,
 		cmd.ResetStateCmd,
@@ -29,7 +28,9 @@ func main() {
 		cmd.VersionCmd,
 		cmd.RollbackStateCmd,
 		cmd.CompactGoLevelDBCmd,
+		cmd.InspectCmd,
 		debug.DebugCmd,
+		config.Command(),
 		cli.NewCompletionCmd(rootCmd, true),
 	)
 
@@ -46,7 +47,7 @@ func main() {
 	// Create & start node
 	rootCmd.AddCommand(cmd.NewRunNodeCmd(nodeFunc))
 
-	cmd := cli.PrepareBaseCmd(rootCmd, "CMT", os.ExpandEnv(filepath.Join("$HOME", cfg.DefaultTendermintDir)))
+	cmd := cli.PrepareBaseCmd(rootCmd, "CMT", os.ExpandEnv(filepath.Join("$HOME", cfg.DefaultCometDir)))
 	if err := cmd.Execute(); err != nil {
 		panic(err)
 	}

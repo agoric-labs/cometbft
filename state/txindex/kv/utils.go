@@ -1,13 +1,17 @@
 package kv
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
-	"github.com/cometbft/cometbft/libs/pubsub/query"
+	"github.com/google/orderedcode"
+
+	abci "github.com/cometbft/cometbft/abci/types"
+	idxutil "github.com/cometbft/cometbft/internal/indexer"
+	cmtsyntax "github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	"github.com/cometbft/cometbft/state/indexer"
 	"github.com/cometbft/cometbft/types"
-	"github.com/google/orderedcode"
 )
 
 type HeightInfo struct {
@@ -46,22 +50,26 @@ func ParseEventSeqFromEventKey(key []byte) (int64, error) {
 
 	return eventSeq, nil
 }
-func dedupHeight(conditions []query.Condition) (dedupConditions []query.Condition, heightInfo HeightInfo) {
+
+func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.Condition, heightInfo HeightInfo) {
 	heightInfo.heightEqIdx = -1
 	heightRangeExists := false
 	found := false
-	var heightCondition []query.Condition
+	var heightCondition []cmtsyntax.Condition
 	heightInfo.onlyHeightEq = true
 	heightInfo.onlyHeightRange = true
 	for _, c := range conditions {
-		if c.CompositeKey == types.TxHeightKey {
-			if c.Op == query.OpEqual {
+		if c.Tag == types.TxHeightKey {
+			if c.Op == cmtsyntax.TEq {
 				if heightRangeExists || found {
 					continue
-				} else {
+				}
+				hFloat := c.Arg.Number()
+				if hFloat != nil {
+					h, _ := hFloat.Int64()
+					heightInfo.height = h
 					found = true
 					heightCondition = append(heightCondition, c)
-					heightInfo.height = c.Operand.(*big.Int).Int64() //Height is always int64
 				}
 			} else {
 				heightInfo.onlyHeightEq = false
@@ -88,15 +96,48 @@ func dedupHeight(conditions []query.Condition) (dedupConditions []query.Conditio
 	return dedupConditions, heightInfo
 }
 
-func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) bool {
+func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) (bool, error) {
 	if heightInfo.heightRange.Key != "" {
-		if !checkBounds(heightInfo.heightRange, big.NewInt(keyHeight)) {
-			return false
+		withinBounds, err := idxutil.CheckBounds(heightInfo.heightRange, big.NewInt(keyHeight))
+		if err != nil || !withinBounds {
+			return false, err
 		}
-	} else {
-		if heightInfo.height != 0 && keyHeight != heightInfo.height {
-			return false
-		}
+	} else if heightInfo.height != 0 && keyHeight != heightInfo.height {
+		return false, nil
 	}
-	return true
+
+	return true, nil
 }
+
+func int64FromBytes(bz []byte) int64 {
+	v, _ := binary.Varint(bz)
+	return v
+}
+
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutVarint(buf, i)
+	return buf[:n]
+}
+
+func getKeys(indexer *TxIndex) [][]byte {
+	var keys [][]byte
+
+	itr, err := indexer.store.Iterator(nil, nil)
+	if err != nil {
+		panic(err)
+	}
+	for ; itr.Valid(); itr.Next() {
+		key := make([]byte, len(itr.Key()))
+		copy(key, itr.Key())
+
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+type TxResultByHeight []*abci.TxResult
+
+func (a TxResultByHeight) Len() int           { return len(a) }
+func (a TxResultByHeight) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a TxResultByHeight) Less(i, j int) bool { return a[i].Height < a[j].Height }

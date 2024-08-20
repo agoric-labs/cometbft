@@ -18,24 +18,37 @@ const (
 	maxQueryLength = 512
 )
 
+type ErrParseQuery struct {
+	Source error
+}
+
+func (e ErrParseQuery) Error() string {
+	return fmt.Sprintf("failed to parse query: %v", e.Source)
+}
+
+func (e ErrParseQuery) Unwrap() error {
+	return e.Source
+}
+
 // Subscribe for events via WebSocket.
-// More: https://docs.cometbft.com/v0.37/rpc/#/Websocket/subscribe
-func Subscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultSubscribe, error) {
+// More: https://docs.cometbft.com/main/rpc/#/Websocket/subscribe
+func (env *Environment) Subscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultSubscribe, error) {
 	addr := ctx.RemoteAddr()
 
-	if env.EventBus.NumClients() >= env.Config.MaxSubscriptionClients {
-		return nil, fmt.Errorf("max_subscription_clients %d reached", env.Config.MaxSubscriptionClients)
-	} else if env.EventBus.NumClientSubscriptions(addr) >= env.Config.MaxSubscriptionsPerClient {
-		return nil, fmt.Errorf("max_subscriptions_per_client %d reached", env.Config.MaxSubscriptionsPerClient)
-	} else if len(query) > maxQueryLength {
-		return nil, errors.New("maximum query length exceeded")
+	switch {
+	case env.EventBus.NumClients() >= env.Config.MaxSubscriptionClients:
+		return nil, ErrMaxSubscription{env.Config.MaxSubscriptionClients}
+	case env.EventBus.NumClientSubscriptions(addr) >= env.Config.MaxSubscriptionsPerClient:
+		return nil, ErrMaxPerClientSubscription{env.Config.MaxSubscriptionsPerClient}
+	case len(query) > maxQueryLength:
+		return nil, ErrQueryLength{len(query), maxQueryLength}
 	}
 
 	env.Logger.Info("Subscribe to query", "remote", addr, "query", query)
 
 	q, err := cmtquery.New(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse query: %w", err)
+		return nil, ErrParseQuery{Source: err}
 	}
 
 	subCtx, cancel := context.WithTimeout(ctx.Context(), SubscribeTimeout)
@@ -66,7 +79,7 @@ func Subscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultSubscribe, er
 
 					if closeIfSlow {
 						var (
-							err  = errors.New("subscription was canceled (reason: slow client)")
+							err  = ErrSubCanceled{ErrSlowClient.Error()}
 							resp = rpctypes.RPCServerError(subscriptionID, err)
 						)
 						if !ctx.WSConn.TryWriteRPCResponse(resp) {
@@ -76,16 +89,16 @@ func Subscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultSubscribe, er
 						return
 					}
 				}
-			case <-sub.Cancelled():
-				if sub.Err() != cmtpubsub.ErrUnsubscribed {
+			case <-sub.Canceled():
+				if !errors.Is(sub.Err(), cmtpubsub.ErrUnsubscribed) {
 					var reason string
 					if sub.Err() == nil {
-						reason = "CometBFT exited"
+						reason = ErrCometBFTExited.Error()
 					} else {
 						reason = sub.Err().Error()
 					}
 					var (
-						err  = fmt.Errorf("subscription was canceled (reason: %s)", reason)
+						err  = ErrSubCanceled{reason}
 						resp = rpctypes.RPCServerError(subscriptionID, err)
 					)
 					if !ctx.WSConn.TryWriteRPCResponse(resp) {
@@ -102,24 +115,26 @@ func Subscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultSubscribe, er
 }
 
 // Unsubscribe from events via WebSocket.
-// More: https://docs.cometbft.com/v0.37/rpc/#/Websocket/unsubscribe
-func Unsubscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultUnsubscribe, error) {
+// More: https://docs.cometbft.com/main/rpc/#/Websocket/unsubscribe
+func (env *Environment) Unsubscribe(ctx *rpctypes.Context, query string) (*ctypes.ResultUnsubscribe, error) {
 	addr := ctx.RemoteAddr()
 	env.Logger.Info("Unsubscribe from query", "remote", addr, "query", query)
 	q, err := cmtquery.New(query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse query: %w", err)
+		return nil, ErrParseQuery{Source: err}
 	}
+
 	err = env.EventBus.Unsubscribe(context.Background(), addr, q)
 	if err != nil {
 		return nil, err
 	}
+
 	return &ctypes.ResultUnsubscribe{}, nil
 }
 
 // UnsubscribeAll from all events via WebSocket.
-// More: https://docs.cometbft.com/v0.37/rpc/#/Websocket/unsubscribe_all
-func UnsubscribeAll(ctx *rpctypes.Context) (*ctypes.ResultUnsubscribe, error) {
+// More: https://docs.cometbft.com/main/rpc/#/Websocket/unsubscribe_all
+func (env *Environment) UnsubscribeAll(ctx *rpctypes.Context) (*ctypes.ResultUnsubscribe, error) {
 	addr := ctx.RemoteAddr()
 	env.Logger.Info("Unsubscribe from all", "remote", addr)
 	err := env.EventBus.UnsubscribeAll(context.Background(), addr)

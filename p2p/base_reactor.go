@@ -16,7 +16,7 @@ type Reactor interface {
 	service.Service // Start, Stop
 
 	// SetSwitch allows setting a switch.
-	SetSwitch(*Switch)
+	SetSwitch(sw *Switch)
 
 	// GetChannels returns the list of MConnection.ChannelDescriptor. Make sure
 	// that each ID is unique across all the reactors added to the switch.
@@ -36,14 +36,14 @@ type Reactor interface {
 
 	// RemovePeer is called by the switch when the peer is stopped (due to error
 	// or other reason).
-	RemovePeer(peer Peer, reason interface{})
+	RemovePeer(peer Peer, reason any)
 
-	// ReceiveEnvelope is called by the switch when an envelope is received from any connected
-	// peer on any of the channels registered by the reactor.
-	ReceiveEnvelope(Envelope)
+	// Receive is called by the switch when an envelope is received from any connected
+	// peer on any of the channels registered by the reactor
+	Receive(e Envelope)
 }
 
-//--------------------------------------
+// --------------------------------------
 
 type BaseReactor struct {
 	service.BaseService // Provides Start, Stop, .Quit
@@ -60,9 +60,8 @@ func NewBaseReactor(name string, impl Reactor) *BaseReactor {
 func (br *BaseReactor) SetSwitch(sw *Switch) {
 	br.Switch = sw
 }
-
-func (*BaseReactor) GetChannels() []*conn.ChannelDescriptor   { return nil }
-func (*BaseReactor) AddPeer(peer Peer)                        {}
-func (*BaseReactor) RemovePeer(peer Peer, reason interface{}) {}
-func (*BaseReactor) ReceiveEnvelope(e Envelope)               {}
-func (*BaseReactor) InitPeer(peer Peer) Peer                  { return peer }
+func (*BaseReactor) GetChannels() []*conn.ChannelDescriptor { return nil }
+func (*BaseReactor) AddPeer(Peer)                           {}
+func (*BaseReactor) RemovePeer(Peer, any)                   {}
+func (*BaseReactor) Receive(Envelope)                       {}
+func (*BaseReactor) InitPeer(peer Peer) Peer                { return peer }

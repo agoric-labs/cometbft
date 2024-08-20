@@ -1,7 +1,7 @@
 package abcicli
 
 import (
-	"fmt"
+	"context"
 	"sync"
 
 	"github.com/cometbft/cometbft/abci/types"
@@ -16,56 +16,41 @@ const (
 
 //go:generate ../../scripts/mockery_generate.sh Client
 
-// Client defines an interface for an ABCI client.
-// All `Async` methods return a `ReqRes` object.
-// All `Sync` methods return the appropriate protobuf ResponseXxx struct and an error.
-// Note these are client errors, eg. ABCI socket connectivity issues.
-// Application-related errors are reflected in response via ABCI error codes and logs.
+// Client defines the interface for an ABCI client.
+//
+// NOTE these are client errors, eg. ABCI socket connectivity issues.
+// Application-related errors are reflected in response via ABCI error codes
+// and (potentially) error response.
 type Client interface {
 	service.Service
+	types.Application
 
-	SetResponseCallback(Callback)
+	// TODO: remove as each method now returns an error
 	Error() error
+	// TODO: remove as this is not implemented
+	Flush(ctx context.Context) error
+	Echo(ctx context.Context, echo string) (*types.EchoResponse, error)
 
-	FlushAsync() *ReqRes
-	EchoAsync(msg string) *ReqRes
-	InfoAsync(types.RequestInfo) *ReqRes
-	DeliverTxAsync(types.RequestDeliverTx) *ReqRes
-	CheckTxAsync(types.RequestCheckTx) *ReqRes
-	QueryAsync(types.RequestQuery) *ReqRes
-	CommitAsync() *ReqRes
-	InitChainAsync(types.RequestInitChain) *ReqRes
-	PrepareProposalAsync(types.RequestPrepareProposal) *ReqRes
-	BeginBlockAsync(types.RequestBeginBlock) *ReqRes
-	EndBlockAsync(types.RequestEndBlock) *ReqRes
-	ListSnapshotsAsync(types.RequestListSnapshots) *ReqRes
-	OfferSnapshotAsync(types.RequestOfferSnapshot) *ReqRes
-	LoadSnapshotChunkAsync(types.RequestLoadSnapshotChunk) *ReqRes
-	ApplySnapshotChunkAsync(types.RequestApplySnapshotChunk) *ReqRes
-	ProcessProposalAsync(types.RequestProcessProposal) *ReqRes
-
-	FlushSync() error
-	EchoSync(msg string) (*types.ResponseEcho, error)
-	InfoSync(types.RequestInfo) (*types.ResponseInfo, error)
-	DeliverTxSync(types.RequestDeliverTx) (*types.ResponseDeliverTx, error)
-	CheckTxSync(types.RequestCheckTx) (*types.ResponseCheckTx, error)
-	QuerySync(types.RequestQuery) (*types.ResponseQuery, error)
-	CommitSync() (*types.ResponseCommit, error)
-	InitChainSync(types.RequestInitChain) (*types.ResponseInitChain, error)
-	PrepareProposalSync(types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error)
-	BeginBlockSync(types.RequestBeginBlock) (*types.ResponseBeginBlock, error)
-	EndBlockSync(types.RequestEndBlock) (*types.ResponseEndBlock, error)
-	ListSnapshotsSync(types.RequestListSnapshots) (*types.ResponseListSnapshots, error)
-	OfferSnapshotSync(types.RequestOfferSnapshot) (*types.ResponseOfferSnapshot, error)
-	LoadSnapshotChunkSync(types.RequestLoadSnapshotChunk) (*types.ResponseLoadSnapshotChunk, error)
-	ApplySnapshotChunkSync(types.RequestApplySnapshotChunk) (*types.ResponseApplySnapshotChunk, error)
-	ProcessProposalSync(types.RequestProcessProposal) (*types.ResponseProcessProposal, error)
+	// FIXME: All other operations are run synchronously and rely
+	// on the caller to dictate concurrency (i.e. run a go routine),
+	// with the exception of `CheckTxAsync` which we maintain
+	// for the v0 mempool. We should explore refactoring the
+	// mempool to remove this vestige behavior.
+	//
+	// SetResponseCallback is not used anymore. The callback was invoked only by the mempool on
+	// CheckTx responses, only during rechecking. Now the responses are handled by the callback of
+	// the *ReqRes struct returned by CheckTxAsync. This callback is more flexible as it allows to
+	// pass other information such as the sender.
+	//
+	// Deprecated: Do not use.
+	SetResponseCallback(cb Callback)
+	CheckTxAsync(ctx context.Context, req *types.CheckTxRequest) (*ReqRes, error)
 }
 
-//----------------------------------------
+// ----------------------------------------
 
 // NewClient returns a new ABCI client of the specified transport type.
-// It returns an error if the transport is not "socket" or "grpc"
+// It returns an error if the transport is not "socket" or "grpc".
 func NewClient(addr, transport string, mustConnect bool) (client Client, err error) {
 	switch transport {
 	case "socket":
@@ -73,9 +58,9 @@ func NewClient(addr, transport string, mustConnect bool) (client Client, err err
 	case "grpc":
 		client = NewGRPCClient(addr, mustConnect)
 	default:
-		err = fmt.Errorf("unknown abci transport %s", transport)
+		err = ErrUnknownAbciTransport{Transport: transport}
 	}
-	return
+	return client, err
 }
 
 type Callback func(*types.Request, *types.Response)
@@ -107,7 +92,7 @@ func NewReqRes(req *types.Request) *ReqRes {
 	}
 }
 
-// Sets sets the callback. If reqRes is already done, it will call the cb
+// SetCallback sets the callback. If reqRes is already done, it will call the cb
 // immediately. Note, reqRes.cb should not change if reqRes.done and only one
 // callback is supported.
 func (r *ReqRes) SetCallback(cb func(res *types.Response)) {
@@ -129,7 +114,7 @@ func (r *ReqRes) InvokeCallback() {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
 
-	if r.cb != nil {
+	if r.cb != nil && r.Response != nil {
 		r.cb(r.Response)
 	}
 	r.callbackInvoked = true
@@ -150,5 +135,5 @@ func (r *ReqRes) GetCallback() func(*types.Response) {
 func waitGroup1() (wg *sync.WaitGroup) {
 	wg = &sync.WaitGroup{}
 	wg.Add(1)
-	return
+	return wg
 }

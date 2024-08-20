@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	cmtproto "github.com/cometbft/cometbft/api/cometbft/types/v1"
 	"github.com/cometbft/cometbft/crypto/merkle"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
-	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 const (
@@ -55,6 +55,8 @@ type ValidatorSet struct {
 
 	// cached (unexported)
 	totalVotingPower int64
+	// true if all validators have the same type of public key or if the set is empty.
+	allKeysHaveSameType bool
 }
 
 // NewValidatorSet initializes a ValidatorSet by copying over the values from
@@ -68,7 +70,9 @@ type ValidatorSet struct {
 // MaxVotesCount - commits by a validator set larger than this will fail
 // validation.
 func NewValidatorSet(valz []*Validator) *ValidatorSet {
-	vals := &ValidatorSet{}
+	vals := &ValidatorSet{
+		allKeysHaveSameType: true,
+	}
 	err := vals.updateWithChangeSet(valz, false)
 	if err != nil {
 		panic(fmt.Sprintf("Cannot create validator set: %v", err))
@@ -105,9 +109,9 @@ func (vals *ValidatorSet) IsNilOrEmpty() bool {
 // CopyIncrementProposerPriority increments ProposerPriority and updates the
 // proposer on a copy, and returns it.
 func (vals *ValidatorSet) CopyIncrementProposerPriority(times int32) *ValidatorSet {
-	copy := vals.Copy()
-	copy.IncrementProposerPriority(times)
-	return copy
+	cp := vals.Copy()
+	cp.IncrementProposerPriority(times)
+	return cp
 }
 
 // IncrementProposerPriority increments ProposerPriority of each validator and
@@ -177,7 +181,7 @@ func (vals *ValidatorSet) incrementProposerPriority() *Validator {
 	return mostest
 }
 
-// Should not be called on an empty validator set.
+// computeAvgProposerPriority should not be called on an empty validator set.
 func (vals *ValidatorSet) computeAvgProposerPriority() int64 {
 	n := int64(len(vals.Validators))
 	sum := big.NewInt(0)
@@ -193,7 +197,8 @@ func (vals *ValidatorSet) computeAvgProposerPriority() int64 {
 	panic(fmt.Sprintf("Cannot represent avg ProposerPriority as an int64 %v", avg))
 }
 
-// Compute the difference between the max and min ProposerPriority of that set.
+// computeMaxMinPriorityDiff computes the difference between the max and min
+// ProposerPriority of that set.
 func computeMaxMinPriorityDiff(vals *ValidatorSet) int64 {
 	if vals.IsNilOrEmpty() {
 		panic("empty validator set")
@@ -233,7 +238,7 @@ func (vals *ValidatorSet) shiftByAvgProposerPriority() {
 	}
 }
 
-// Makes a copy of the validator list.
+// validatorListCopy makes a copy of the validator list.
 func validatorListCopy(valsList []*Validator) []*Validator {
 	if valsList == nil {
 		return nil
@@ -248,9 +253,10 @@ func validatorListCopy(valsList []*Validator) []*Validator {
 // Copy each validator into a new ValidatorSet.
 func (vals *ValidatorSet) Copy() *ValidatorSet {
 	return &ValidatorSet{
-		Validators:       validatorListCopy(vals.Validators),
-		Proposer:         vals.Proposer,
-		totalVotingPower: vals.totalVotingPower,
+		Validators:          validatorListCopy(vals.Validators),
+		Proposer:            vals.Proposer,
+		totalVotingPower:    vals.totalVotingPower,
+		allKeysHaveSameType: vals.allKeysHaveSameType,
 	}
 }
 
@@ -268,9 +274,21 @@ func (vals *ValidatorSet) HasAddress(address []byte) bool {
 // GetByAddress returns an index of the validator with address and validator
 // itself (copy) if found. Otherwise, -1 and nil are returned.
 func (vals *ValidatorSet) GetByAddress(address []byte) (index int32, val *Validator) {
+	i, val := vals.GetByAddressMut(address)
+	if i == -1 {
+		return -1, nil
+	}
+	return i, val.Copy()
+}
+
+// GetByAddressMut returns an index of the validator with address and the
+// direct validator object if found. Mutations on this return value affect the validator set.
+// This method should be used by callers who will not mutate Val.
+// Otherwise, -1 and nil are returned.
+func (vals *ValidatorSet) GetByAddressMut(address []byte) (index int32, val *Validator) {
 	for idx, val := range vals.Validators {
 		if bytes.Equal(val.Address, address) {
-			return int32(idx), val.Copy()
+			return int32(idx), val
 		}
 	}
 	return -1, nil
@@ -293,7 +311,7 @@ func (vals *ValidatorSet) Size() int {
 	return len(vals.Validators)
 }
 
-// Forces recalculation of the set's total voting power.
+// updateTotalVotingPower forces recalculation of the set's total voting power.
 // Panics if total voting power is bigger than MaxTotalVotingPower.
 func (vals *ValidatorSet) updateTotalVotingPower() {
 	sum := int64(0)
@@ -362,7 +380,8 @@ func (vals *ValidatorSet) Iterate(fn func(index int, val *Validator) bool) {
 	}
 }
 
-// Checks changes against duplicates, splits the changes in updates and
+// processChanges checks changes against duplicates,
+// splits the changes in updates and
 // removals, sorts them by address.
 //
 // Returns:
@@ -423,15 +442,14 @@ func processChanges(origChanges []*Validator) (updates, removals []*Validator, e
 //	Note that this will be < 2 * MaxTotalVotingPower in case high power validators are removed and
 //	validators are added/ updated with high power values.
 //
-// err - non-nil if the maximum allowed total voting power would be exceeded
+// err - non-nil if the maximum allowed total voting power would be exceeded.
 func verifyUpdates(
 	updates []*Validator,
 	vals *ValidatorSet,
 	removedPower int64,
 ) (tvpAfterUpdatesBeforeRemovals int64, err error) {
-
 	delta := func(update *Validator, vals *ValidatorSet) int64 {
-		_, val := vals.GetByAddress(update.Address)
+		_, val := vals.GetByAddressMut(update.Address)
 		if val != nil {
 			return update.VotingPower - val.VotingPower
 		}
@@ -478,7 +496,7 @@ func numNewValidators(updates []*Validator, vals *ValidatorSet) int {
 func computeNewPriorities(updates []*Validator, vals *ValidatorSet, updatedTotalVotingPower int64) {
 	for _, valUpdate := range updates {
 		address := valUpdate.Address
-		_, val := vals.GetByAddress(address)
+		_, val := vals.GetByAddressMut(address)
 		if val == nil {
 			// add val
 			// Set ProposerPriority to -C*totalVotingPower (with C ~= 1.125) to make sure validators can't
@@ -493,7 +511,6 @@ func computeNewPriorities(updates []*Validator, vals *ValidatorSet, updatedTotal
 			valUpdate.ProposerPriority = val.ProposerPriority
 		}
 	}
-
 }
 
 // Merges the vals' validator list with the updates list.
@@ -537,13 +554,14 @@ func (vals *ValidatorSet) applyUpdates(updates []*Validator) {
 	vals.Validators = merged[:i]
 }
 
-// Checks that the validators to be removed are part of the validator set.
+// verifyRemovals checks that the validators to be removed are part of the
+// validator set.
 // No changes are made to the validator set 'vals'.
 func verifyRemovals(deletes []*Validator, vals *ValidatorSet) (votingPower int64, err error) {
 	removedVotingPower := int64(0)
 	for _, valUpdate := range deletes {
 		address := valUpdate.Address
-		_, val := vals.GetByAddress(address)
+		_, val := vals.GetByAddressMut(address)
 		if val == nil {
 			return removedVotingPower, fmt.Errorf("failed to find validator %X to remove", address)
 		}
@@ -555,7 +573,8 @@ func verifyRemovals(deletes []*Validator, vals *ValidatorSet) (votingPower int64
 	return removedVotingPower, nil
 }
 
-// Removes the validators specified in 'deletes' from validator set 'vals'.
+// applyRemovals removes the validators specified in 'deletes' from validator
+// set 'vals'.
 // Should not fail as verification has been done before.
 // Expects vals to be sorted by address (done by applyUpdates).
 func (vals *ValidatorSet) applyRemovals(deletes []*Validator) {
@@ -584,7 +603,8 @@ func (vals *ValidatorSet) applyRemovals(deletes []*Validator) {
 	vals.Validators = merged[:i]
 }
 
-// Main function used by UpdateWithChangeSet() and NewValidatorSet().
+// updateWithChangeSet is the main function used by UpdateWithChangeSet(
+// ) and NewValidatorSet().
 // If 'allowDeletes' is false then delete operations (identified by validators with voting power 0)
 // are not allowed and will trigger an error if present in 'changes'.
 // The 'allowDeletes' flag is set to false by NewValidatorSet() and to true by UpdateWithChangeSet().
@@ -629,6 +649,9 @@ func (vals *ValidatorSet) updateWithChangeSet(changes []*Validator, allowDeletes
 	vals.applyUpdates(updates)
 	vals.applyRemovals(deletes)
 
+	// Should go after additions.
+	vals.checkAllKeysHaveSameType()
+
 	vals.updateTotalVotingPower() // will panic if total voting power > MaxTotalVotingPower
 
 	// Scale and center.
@@ -657,172 +680,54 @@ func (vals *ValidatorSet) UpdateWithChangeSet(changes []*Validator) error {
 	return vals.updateWithChangeSet(changes, true)
 }
 
-// VerifyCommit verifies +2/3 of the set had signed the given commit.
-//
-// It checks all the signatures! While it's safe to exit as soon as we have
-// 2/3+ signatures, doing so would impact incentivization logic in the ABCI
-// application that depends on the LastCommitInfo sent in BeginBlock, which
-// includes which validators signed. For instance, Gaia incentivizes proposers
-// with a bonus for including more than +2/3 of the signatures.
+// VerifyCommit verifies +2/3 of the set had signed the given commit and all
+// other signatures are valid.
 func (vals *ValidatorSet) VerifyCommit(chainID string, blockID BlockID,
-	height int64, commit *Commit) error {
-
-	if vals.Size() != len(commit.Signatures) {
-		return NewErrInvalidCommitSignatures(vals.Size(), len(commit.Signatures))
-	}
-
-	// Validate Height and BlockID.
-	if height != commit.Height {
-		return NewErrInvalidCommitHeight(height, commit.Height)
-	}
-	if !blockID.Equals(commit.BlockID) {
-		return fmt.Errorf("invalid commit -- wrong block ID: want %v, got %v",
-			blockID, commit.BlockID)
-	}
-
-	talliedVotingPower := int64(0)
-	votingPowerNeeded := vals.TotalVotingPower() * 2 / 3
-	for idx, commitSig := range commit.Signatures {
-		if commitSig.Absent() {
-			continue // OK, some signatures can be absent.
-		}
-
-		// The vals and commit have a 1-to-1 correspondance.
-		// This means we don't need the validator address or to do any lookup.
-		val := vals.Validators[idx]
-
-		// Validate signature.
-		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
-		if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
-			return fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)
-		}
-		// Good!
-		if commitSig.ForBlock() {
-			talliedVotingPower += val.VotingPower
-		}
-		// else {
-		// It's OK. We include stray signatures (~votes for nil) to measure
-		// validator availability.
-		// }
-	}
-
-	if got, needed := talliedVotingPower, votingPowerNeeded; got <= needed {
-		return ErrNotEnoughVotingPowerSigned{Got: got, Needed: needed}
-	}
-
-	return nil
+	height int64, commit *Commit,
+) error {
+	return VerifyCommit(chainID, vals, blockID, height, commit)
 }
 
 // LIGHT CLIENT VERIFICATION METHODS
 
 // VerifyCommitLight verifies +2/3 of the set had signed the given commit.
-//
-// This method is primarily used by the light client and does not check all the
-// signatures.
+// It does NOT count all signatures.
 func (vals *ValidatorSet) VerifyCommitLight(chainID string, blockID BlockID,
-	height int64, commit *Commit) error {
+	height int64, commit *Commit,
+) error {
+	return VerifyCommitLight(chainID, vals, blockID, height, commit)
+}
 
-	if vals.Size() != len(commit.Signatures) {
-		return NewErrInvalidCommitSignatures(vals.Size(), len(commit.Signatures))
-	}
-
-	// Validate Height and BlockID.
-	if height != commit.Height {
-		return NewErrInvalidCommitHeight(height, commit.Height)
-	}
-	if !blockID.Equals(commit.BlockID) {
-		return fmt.Errorf("invalid commit -- wrong block ID: want %v, got %v",
-			blockID, commit.BlockID)
-	}
-
-	talliedVotingPower := int64(0)
-	votingPowerNeeded := vals.TotalVotingPower() * 2 / 3
-	for idx, commitSig := range commit.Signatures {
-		// No need to verify absent or nil votes.
-		if !commitSig.ForBlock() {
-			continue
-		}
-
-		// The vals and commit have a 1-to-1 correspondance.
-		// This means we don't need the validator address or to do any lookup.
-		val := vals.Validators[idx]
-
-		// Validate signature.
-		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
-		if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
-			return fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)
-		}
-
-		talliedVotingPower += val.VotingPower
-
-		// return as soon as +2/3 of the signatures are verified
-		if talliedVotingPower > votingPowerNeeded {
-			return nil
-		}
-	}
-
-	return ErrNotEnoughVotingPowerSigned{Got: talliedVotingPower, Needed: votingPowerNeeded}
+// VerifyCommitLight verifies +2/3 of the set had signed the given commit.
+// It DOES count all signatures.
+func (vals *ValidatorSet) VerifyCommitLightAllSignatures(chainID string, blockID BlockID,
+	height int64, commit *Commit,
+) error {
+	return VerifyCommitLightAllSignatures(chainID, vals, blockID, height, commit)
 }
 
 // VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
 // this commit.
-//
-// NOTE the given validators do not necessarily correspond to the validator set
-// for this commit, but there may be some intersection.
-//
-// This method is primarily used by the light client and does not check all the
-// signatures.
-func (vals *ValidatorSet) VerifyCommitLightTrusting(chainID string, commit *Commit, trustLevel cmtmath.Fraction) error {
-	// sanity check
-	if trustLevel.Denominator == 0 {
-		return errors.New("trustLevel has zero Denominator")
-	}
+// It does NOT count all signatures.
+// CONTRACT: must run ValidateBasic() on commit before verifying.
+func (vals *ValidatorSet) VerifyCommitLightTrusting(
+	chainID string,
+	commit *Commit,
+	trustLevel cmtmath.Fraction,
+) error {
+	return VerifyCommitLightTrusting(chainID, vals, commit, trustLevel)
+}
 
-	var (
-		talliedVotingPower int64
-		seenVals           = make(map[int32]int, len(commit.Signatures)) // validator index -> commit index
-	)
-
-	// Safely calculate voting power needed.
-	totalVotingPowerMulByNumerator, overflow := safeMul(vals.TotalVotingPower(), int64(trustLevel.Numerator))
-	if overflow {
-		return errors.New("int64 overflow while calculating voting power needed. please provide smaller trustLevel numerator")
-	}
-	votingPowerNeeded := totalVotingPowerMulByNumerator / int64(trustLevel.Denominator)
-
-	for idx, commitSig := range commit.Signatures {
-		// No need to verify absent or nil votes.
-		if !commitSig.ForBlock() {
-			continue
-		}
-
-		// We don't know the validators that committed this block, so we have to
-		// check for each vote if its validator is already known.
-		valIdx, val := vals.GetByAddress(commitSig.ValidatorAddress)
-
-		if val != nil {
-			// check for double vote of validator on the same commit
-			if firstIndex, ok := seenVals[valIdx]; ok {
-				secondIndex := idx
-				return fmt.Errorf("double vote from %v (%d and %d)", val, firstIndex, secondIndex)
-			}
-			seenVals[valIdx] = idx
-
-			// Validate signature.
-			voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
-			if !val.PubKey.VerifySignature(voteSignBytes, commitSig.Signature) {
-				return fmt.Errorf("wrong signature (#%d): %X", idx, commitSig.Signature)
-			}
-
-			talliedVotingPower += val.VotingPower
-
-			if talliedVotingPower > votingPowerNeeded {
-				return nil
-			}
-		}
-	}
-
-	return ErrNotEnoughVotingPowerSigned{Got: talliedVotingPower, Needed: votingPowerNeeded}
+// VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
+// this commit.
+// It DOES count all signatures.
+// CONTRACT: must run ValidateBasic() on commit before verifying.
+func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(
+	chainID string,
+	commit *Commit,
+	trustLevel cmtmath.Fraction,
+) error {
+	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
 }
 
 // findPreviousProposer reverses the compare proposer priority function to find the validator
@@ -843,7 +748,37 @@ func (vals *ValidatorSet) findPreviousProposer() *Validator {
 	return previousProposer
 }
 
-//-----------------
+func (vals *ValidatorSet) checkAllKeysHaveSameType() {
+	if vals.Size() == 0 {
+		vals.allKeysHaveSameType = true
+		return
+	}
+
+	firstKeyType := ""
+	for _, val := range vals.Validators {
+		if firstKeyType == "" {
+			// XXX: Should only be the case in tests.
+			if val.PubKey == nil {
+				continue
+			}
+			firstKeyType = val.PubKey.Type()
+		}
+		if val.PubKey.Type() != firstKeyType {
+			vals.allKeysHaveSameType = false
+			return
+		}
+	}
+
+	vals.allKeysHaveSameType = true
+}
+
+// AllKeysHaveSameType returns true if all validators have the same type of
+// public key or if the set is empty.
+func (vals *ValidatorSet) AllKeysHaveSameType() bool {
+	return vals.allKeysHaveSameType
+}
+
+// -----------------
 
 // IsErrNotEnoughVotingPowerSigned returns true if err is
 // ErrNotEnoughVotingPowerSigned.
@@ -862,7 +797,7 @@ func (e ErrNotEnoughVotingPowerSigned) Error() string {
 	return fmt.Sprintf("invalid commit -- insufficient voting power: got %d, needed more than %d", e.Got, e.Needed)
 }
 
-//----------------
+// ----------------
 
 // String returns a string representation of ValidatorSet.
 //
@@ -879,7 +814,7 @@ func (vals *ValidatorSet) StringIndented(indent string) string {
 		return "nil-ValidatorSet"
 	}
 	var valStrings []string
-	vals.Iterate(func(index int, val *Validator) bool {
+	vals.Iterate(func(_ int, val *Validator) bool {
 		valStrings = append(valStrings, val.String())
 		return false
 	})
@@ -892,10 +827,9 @@ func (vals *ValidatorSet) StringIndented(indent string) string {
 		indent,
 		indent, strings.Join(valStrings, "\n"+indent+"    "),
 		indent)
-
 }
 
-//-------------------------------------
+// -------------------------------------
 
 // ValidatorsByVotingPower implements sort.Interface for []*Validator based on
 // the VotingPower and Address fields.
@@ -928,7 +862,7 @@ func (valz ValidatorsByAddress) Swap(i, j int) {
 	valz[i], valz[j] = valz[j], valz[i]
 }
 
-// ToProto converts ValidatorSet to protobuf
+// ToProto converts ValidatorSet to protobuf.
 func (vals *ValidatorSet) ToProto() (*cmtproto.ValidatorSet, error) {
 	if vals.IsNilOrEmpty() {
 		return &cmtproto.ValidatorSet{}, nil // validator set should never be nil
@@ -960,7 +894,7 @@ func (vals *ValidatorSet) ToProto() (*cmtproto.ValidatorSet, error) {
 
 // ValidatorSetFromProto sets a protobuf ValidatorSet to the given pointer.
 // It returns an error if any of the validators from the set or the proposer
-// is invalid
+// is invalid.
 func ValidatorSetFromProto(vp *cmtproto.ValidatorSet) (*ValidatorSet, error) {
 	if vp == nil {
 		return nil, errors.New("nil validator set") // validator set should never be nil, bigger issues are at play if empty
@@ -976,6 +910,7 @@ func ValidatorSetFromProto(vp *cmtproto.ValidatorSet) (*ValidatorSet, error) {
 		valsProto[i] = v
 	}
 	vals.Validators = valsProto
+	vals.checkAllKeysHaveSameType()
 
 	p, err := ValidatorFromProto(vp.GetProposer())
 	if err != nil {
@@ -1012,13 +947,14 @@ func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error
 	vals := &ValidatorSet{
 		Validators: valz,
 	}
+	vals.checkAllKeysHaveSameType()
 	vals.Proposer = vals.findPreviousProposer()
 	vals.updateTotalVotingPower()
 	sort.Sort(ValidatorsByVotingPower(vals.Validators))
 	return vals, nil
 }
 
-//----------------------------------------
+// ----------------------------------------
 
 // RandValidatorSet returns a randomized validator set (size: +numValidators+),
 // where each validator has a voting power of +votingPower+.

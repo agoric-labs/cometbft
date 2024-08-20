@@ -1,9 +1,7 @@
 package secp256k1
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"crypto/subtle"
 	"fmt"
 	"io"
 	"math/big"
@@ -16,7 +14,7 @@ import (
 	cmtjson "github.com/cometbft/cometbft/libs/json"
 )
 
-// -------------------------------------
+// -------------------------------------.
 const (
 	PrivKeyName = "tendermint/PrivKeySecp256k1"
 	PubKeyName  = "tendermint/PubKeySecp256k1"
@@ -50,16 +48,7 @@ func (privKey PrivKey) PubKey() crypto.PubKey {
 	return PubKey(pk)
 }
 
-// Equals - you probably don't need to use this.
-// Runs in constant time based on length of the keys.
-func (privKey PrivKey) Equals(other crypto.PrivKey) bool {
-	if otherSecp, ok := other.(PrivKey); ok {
-		return subtle.ConstantTimeCompare(privKey[:], otherSecp[:]) == 1
-	}
-	return false
-}
-
-func (privKey PrivKey) Type() string {
+func (PrivKey) Type() string {
 	return KeyType
 }
 
@@ -128,16 +117,14 @@ func GenPrivKeySecp256k1(secret []byte) PrivKey {
 func (privKey PrivKey) Sign(msg []byte) ([]byte, error) {
 	priv, _ := secp256k1.PrivKeyFromBytes(privKey)
 
-	sig, err := ecdsa.SignCompact(priv, crypto.Sha256(msg), false)
-	if err != nil {
-		return nil, err
-	}
+	sum := sha256.Sum256(msg)
+	sig := ecdsa.SignCompact(priv, sum[:], false)
 
 	// remove the first byte which is compactSigRecoveryCode
 	return sig[1:], nil
 }
 
-//-------------------------------------
+// -------------------------------------
 
 var _ crypto.PubKey = PubKey{}
 
@@ -152,7 +139,7 @@ const PubKeySize = 33
 // This prefix is followed with the x-coordinate.
 type PubKey []byte
 
-// Address returns a Bitcoin style addresses: RIPEMD160(SHA256(pubkey))
+// Address returns a Bitcoin style addresses: RIPEMD160(SHA256(pubkey)).
 func (pubKey PubKey) Address() crypto.Address {
 	if len(pubKey) != PubKeySize {
 		panic("length of pubkey is incorrect")
@@ -176,14 +163,7 @@ func (pubKey PubKey) String() string {
 	return fmt.Sprintf("PubKeySecp256k1{%X}", []byte(pubKey))
 }
 
-func (pubKey PubKey) Equals(other crypto.PubKey) bool {
-	if otherSecp, ok := other.(PubKey); ok {
-		return bytes.Equal(pubKey[:], otherSecp[:])
-	}
-	return false
-}
-
-func (pubKey PubKey) Type() string {
+func (PubKey) Type() string {
 	return KeyType
 }
 
@@ -205,7 +185,7 @@ func (pubKey PubKey) VerifySignature(msg []byte, sigStr []byte) bool {
 	// see: https://github.com/ethereum/go-ethereum/blob/f9401ae011ddf7f8d2d95020b7446c17f8d98dc1/crypto/signature_nocgo.go#L90-L93
 	// Serialize() would negate S value if it is over half order.
 	// Hence, if the signature is different after Serialize() if should be rejected.
-	var modifiedSignature, parseErr = ecdsa.ParseDERSignature(signature.Serialize())
+	modifiedSignature, parseErr := ecdsa.ParseDERSignature(signature.Serialize())
 	if parseErr != nil {
 		return false
 	}
@@ -213,7 +193,8 @@ func (pubKey PubKey) VerifySignature(msg []byte, sigStr []byte) bool {
 		return false
 	}
 
-	return signature.Verify(crypto.Sha256(msg), pub)
+	sum := sha256.Sum256(msg)
+	return signature.Verify(sum[:], pub)
 }
 
 // Read Signature struct from R || S. Caller needs to ensure

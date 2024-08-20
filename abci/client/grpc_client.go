@@ -1,36 +1,36 @@
 package abcicli
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/cometbft/cometbft/abci/types"
-	cmtnet "github.com/cometbft/cometbft/libs/net"
+	cmtnet "github.com/cometbft/cometbft/internal/net"
 	"github.com/cometbft/cometbft/libs/service"
-	cmtsync "github.com/cometbft/cometbft/libs/sync"
 )
 
 var _ Client = (*grpcClient)(nil)
 
 // A stripped copy of the remoteClient that makes
-// synchronous calls using grpc
+// synchronous calls using grpc.
 type grpcClient struct {
 	service.BaseService
 	mustConnect bool
 
-	client   types.ABCIApplicationClient
+	client   types.ABCIServiceClient
 	conn     *grpc.ClientConn
 	chReqRes chan *ReqRes // dispatches "async" responses to callbacks *in order*, needed by mempool
 
-	mtx   cmtsync.Mutex
+	mtx   sync.Mutex
 	addr  string
 	err   error
-	resCb func(*types.Request, *types.Response) // listens to all callbacks
+	resCb Callback // listens to all callbacks
 }
 
 func NewGRPCClient(addr string, mustConnect bool) Client {
@@ -49,7 +49,7 @@ func NewGRPCClient(addr string, mustConnect bool) Client {
 	return cli
 }
 
-func dialerFunc(ctx context.Context, addr string) (net.Conn, error) {
+func dialerFunc(_ context.Context, addr string) (net.Conn, error) {
 	return cmtnet.Connect(addr)
 }
 
@@ -87,8 +87,10 @@ func (cli *grpcClient) OnStart() error {
 
 RETRY_LOOP:
 	for {
-		//nolint:staticcheck,nolintlint // SA1019 Existing use of deprecated but supported dial option.
-		conn, err := grpc.Dial(cli.addr, grpc.WithInsecure(), grpc.WithContextDialer(dialerFunc))
+		conn, err := grpc.NewClient(cli.addr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithContextDialer(dialerFunc),
+		)
 		if err != nil {
 			if cli.mustConnect {
 				return err
@@ -99,12 +101,12 @@ RETRY_LOOP:
 		}
 
 		cli.Logger.Info("Dialed server. Waiting for echo.", "addr", cli.addr)
-		client := types.NewABCIApplicationClient(conn)
+		client := types.NewABCIClient(conn)
 		cli.conn = conn
 
 	ENSURE_CONNECTED:
 		for {
-			_, err := client.Echo(context.Background(), &types.RequestEcho{Message: "hello"}, grpc.WaitForReady(true))
+			_, err := client.Echo(context.Background(), &types.EchoRequest{Message: "hello"}, grpc.WaitForReady(true))
 			if err == nil {
 				break ENSURE_CONNECTED
 			}
@@ -149,165 +151,23 @@ func (cli *grpcClient) Error() error {
 	return cli.err
 }
 
-// Set listener for all responses
-// NOTE: callback may get internally generated flush responses.
+// SetResponseCallback sets a listener for all responses.
+// NOTE: The callback may receive internally generated flush responses.
 func (cli *grpcClient) SetResponseCallback(resCb Callback) {
 	cli.mtx.Lock()
 	cli.resCb = resCb
 	cli.mtx.Unlock()
 }
 
-//----------------------------------------
-// GRPC calls are synchronous, but some callbacks expect to be called asynchronously
-// (eg. the mempool expects to be able to lock to remove bad txs from cache).
-// To accommodate, we finish each call in its own go-routine,
-// which is expensive, but easy - if you want something better, use the socket protocol!
-// maybe one day, if people really want it, we use grpc streams,
-// but hopefully not :D
+// ----------------------------------------
 
-func (cli *grpcClient) EchoAsync(msg string) *ReqRes {
-	req := types.ToRequestEcho(msg)
-	res, err := cli.client.Echo(context.Background(), req.GetEcho(), grpc.WaitForReady(true))
+func (cli *grpcClient) CheckTxAsync(ctx context.Context, req *types.CheckTxRequest) (*ReqRes, error) {
+	res, err := cli.client.CheckTx(ctx, req, grpc.WaitForReady(true))
 	if err != nil {
 		cli.StopForError(err)
+		return nil, err
 	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_Echo{Echo: res}})
-}
-
-func (cli *grpcClient) FlushAsync() *ReqRes {
-	req := types.ToRequestFlush()
-	res, err := cli.client.Flush(context.Background(), req.GetFlush(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_Flush{Flush: res}})
-}
-
-func (cli *grpcClient) InfoAsync(params types.RequestInfo) *ReqRes {
-	req := types.ToRequestInfo(params)
-	res, err := cli.client.Info(context.Background(), req.GetInfo(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_Info{Info: res}})
-}
-
-func (cli *grpcClient) DeliverTxAsync(params types.RequestDeliverTx) *ReqRes {
-	req := types.ToRequestDeliverTx(params)
-	res, err := cli.client.DeliverTx(context.Background(), req.GetDeliverTx(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_DeliverTx{DeliverTx: res}})
-}
-
-func (cli *grpcClient) CheckTxAsync(params types.RequestCheckTx) *ReqRes {
-	req := types.ToRequestCheckTx(params)
-	res, err := cli.client.CheckTx(context.Background(), req.GetCheckTx(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_CheckTx{CheckTx: res}})
-}
-
-func (cli *grpcClient) QueryAsync(params types.RequestQuery) *ReqRes {
-	req := types.ToRequestQuery(params)
-	res, err := cli.client.Query(context.Background(), req.GetQuery(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_Query{Query: res}})
-}
-
-func (cli *grpcClient) CommitAsync() *ReqRes {
-	req := types.ToRequestCommit()
-	res, err := cli.client.Commit(context.Background(), req.GetCommit(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_Commit{Commit: res}})
-}
-
-func (cli *grpcClient) InitChainAsync(params types.RequestInitChain) *ReqRes {
-	req := types.ToRequestInitChain(params)
-	res, err := cli.client.InitChain(context.Background(), req.GetInitChain(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_InitChain{InitChain: res}})
-}
-
-func (cli *grpcClient) BeginBlockAsync(params types.RequestBeginBlock) *ReqRes {
-	req := types.ToRequestBeginBlock(params)
-	res, err := cli.client.BeginBlock(context.Background(), req.GetBeginBlock(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_BeginBlock{BeginBlock: res}})
-}
-
-func (cli *grpcClient) EndBlockAsync(params types.RequestEndBlock) *ReqRes {
-	req := types.ToRequestEndBlock(params)
-	res, err := cli.client.EndBlock(context.Background(), req.GetEndBlock(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_EndBlock{EndBlock: res}})
-}
-
-func (cli *grpcClient) ListSnapshotsAsync(params types.RequestListSnapshots) *ReqRes {
-	req := types.ToRequestListSnapshots(params)
-	res, err := cli.client.ListSnapshots(context.Background(), req.GetListSnapshots(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_ListSnapshots{ListSnapshots: res}})
-}
-
-func (cli *grpcClient) OfferSnapshotAsync(params types.RequestOfferSnapshot) *ReqRes {
-	req := types.ToRequestOfferSnapshot(params)
-	res, err := cli.client.OfferSnapshot(context.Background(), req.GetOfferSnapshot(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_OfferSnapshot{OfferSnapshot: res}})
-}
-
-func (cli *grpcClient) LoadSnapshotChunkAsync(params types.RequestLoadSnapshotChunk) *ReqRes {
-	req := types.ToRequestLoadSnapshotChunk(params)
-	res, err := cli.client.LoadSnapshotChunk(context.Background(), req.GetLoadSnapshotChunk(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_LoadSnapshotChunk{LoadSnapshotChunk: res}})
-}
-
-func (cli *grpcClient) ApplySnapshotChunkAsync(params types.RequestApplySnapshotChunk) *ReqRes {
-	req := types.ToRequestApplySnapshotChunk(params)
-	res, err := cli.client.ApplySnapshotChunk(context.Background(), req.GetApplySnapshotChunk(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_ApplySnapshotChunk{ApplySnapshotChunk: res}})
-}
-
-func (cli *grpcClient) PrepareProposalAsync(params types.RequestPrepareProposal) *ReqRes {
-	req := types.ToRequestPrepareProposal(params)
-	res, err := cli.client.PrepareProposal(context.Background(), req.GetPrepareProposal(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_PrepareProposal{PrepareProposal: res}})
-}
-
-func (cli *grpcClient) ProcessProposalAsync(params types.RequestProcessProposal) *ReqRes {
-	req := types.ToRequestProcessProposal(params)
-	res, err := cli.client.ProcessProposal(context.Background(), req.GetProcessProposal(), grpc.WaitForReady(true))
-	if err != nil {
-		cli.StopForError(err)
-	}
-
-	return cli.finishAsyncCall(req, &types.Response{Value: &types.Response_ProcessProposal{ProcessProposal: res}})
+	return cli.finishAsyncCall(types.ToCheckTxRequest(req), &types.Response{Value: &types.Response_CheckTx{CheckTx: res}}), nil
 }
 
 // finishAsyncCall creates a ReqRes for an async call, and immediately populates it
@@ -319,120 +179,69 @@ func (cli *grpcClient) finishAsyncCall(req *types.Request, res *types.Response) 
 	return reqres
 }
 
-// finishSyncCall waits for an async call to complete. It is necessary to call all
-// sync calls asynchronously as well, to maintain call and response ordering via
-// the channel, and this method will wait until the async call completes.
-func (cli *grpcClient) finishSyncCall(reqres *ReqRes) *types.Response {
-	// It's possible that the callback is called twice, since the callback can
-	// be called immediately on SetCallback() in addition to after it has been
-	// set. This is because completing the ReqRes happens in a separate critical
-	// section from the one where the callback is called: there is a race where
-	// SetCallback() is called between completing the ReqRes and dispatching the
-	// callback.
-	//
-	// We also buffer the channel with 1 response, since SetCallback() will be
-	// called synchronously if the reqres is already completed, in which case
-	// it will block on sending to the channel since it hasn't gotten around to
-	// receiving from it yet.
-	//
-	// ReqRes should really handle callback dispatch internally, to guarantee
-	// that it's only called once and avoid the above race conditions.
-	var once sync.Once
-	ch := make(chan *types.Response, 1)
-	reqres.SetCallback(func(res *types.Response) {
-		once.Do(func() {
-			ch <- res
-		})
-	})
-	return <-ch
+// ----------------------------------------
+
+func (cli *grpcClient) Flush(ctx context.Context) error {
+	_, err := cli.client.Flush(ctx, types.ToFlushRequest().GetFlush(), grpc.WaitForReady(true))
+	return err
 }
 
-//----------------------------------------
-
-func (cli *grpcClient) FlushSync() error {
-	reqres := cli.FlushAsync()
-	cli.finishSyncCall(reqres).GetFlush()
-	return cli.Error()
+func (cli *grpcClient) Echo(ctx context.Context, msg string) (*types.EchoResponse, error) {
+	return cli.client.Echo(ctx, types.ToEchoRequest(msg).GetEcho(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) EchoSync(msg string) (*types.ResponseEcho, error) {
-	reqres := cli.EchoAsync(msg)
-	// StopForError should already have been called if error is set
-	return cli.finishSyncCall(reqres).GetEcho(), cli.Error()
+func (cli *grpcClient) Info(ctx context.Context, req *types.InfoRequest) (*types.InfoResponse, error) {
+	return cli.client.Info(ctx, req, grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) InfoSync(req types.RequestInfo) (*types.ResponseInfo, error) {
-	reqres := cli.InfoAsync(req)
-	return cli.finishSyncCall(reqres).GetInfo(), cli.Error()
+func (cli *grpcClient) CheckTx(ctx context.Context, req *types.CheckTxRequest) (*types.CheckTxResponse, error) {
+	return cli.client.CheckTx(ctx, req, grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) DeliverTxSync(params types.RequestDeliverTx) (*types.ResponseDeliverTx, error) {
-	reqres := cli.DeliverTxAsync(params)
-	return cli.finishSyncCall(reqres).GetDeliverTx(), cli.Error()
+func (cli *grpcClient) Query(ctx context.Context, req *types.QueryRequest) (*types.QueryResponse, error) {
+	return cli.client.Query(ctx, types.ToQueryRequest(req).GetQuery(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) CheckTxSync(params types.RequestCheckTx) (*types.ResponseCheckTx, error) {
-	reqres := cli.CheckTxAsync(params)
-	return cli.finishSyncCall(reqres).GetCheckTx(), cli.Error()
+func (cli *grpcClient) Commit(ctx context.Context, _ *types.CommitRequest) (*types.CommitResponse, error) {
+	return cli.client.Commit(ctx, types.ToCommitRequest().GetCommit(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) QuerySync(req types.RequestQuery) (*types.ResponseQuery, error) {
-	reqres := cli.QueryAsync(req)
-	return cli.finishSyncCall(reqres).GetQuery(), cli.Error()
+func (cli *grpcClient) InitChain(ctx context.Context, req *types.InitChainRequest) (*types.InitChainResponse, error) {
+	return cli.client.InitChain(ctx, types.ToInitChainRequest(req).GetInitChain(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) CommitSync() (*types.ResponseCommit, error) {
-	reqres := cli.CommitAsync()
-	return cli.finishSyncCall(reqres).GetCommit(), cli.Error()
+func (cli *grpcClient) ListSnapshots(ctx context.Context, req *types.ListSnapshotsRequest) (*types.ListSnapshotsResponse, error) {
+	return cli.client.ListSnapshots(ctx, types.ToListSnapshotsRequest(req).GetListSnapshots(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) InitChainSync(params types.RequestInitChain) (*types.ResponseInitChain, error) {
-	reqres := cli.InitChainAsync(params)
-	return cli.finishSyncCall(reqres).GetInitChain(), cli.Error()
+func (cli *grpcClient) OfferSnapshot(ctx context.Context, req *types.OfferSnapshotRequest) (*types.OfferSnapshotResponse, error) {
+	return cli.client.OfferSnapshot(ctx, types.ToOfferSnapshotRequest(req).GetOfferSnapshot(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) BeginBlockSync(params types.RequestBeginBlock) (*types.ResponseBeginBlock, error) {
-	reqres := cli.BeginBlockAsync(params)
-	return cli.finishSyncCall(reqres).GetBeginBlock(), cli.Error()
+func (cli *grpcClient) LoadSnapshotChunk(ctx context.Context, req *types.LoadSnapshotChunkRequest) (*types.LoadSnapshotChunkResponse, error) {
+	return cli.client.LoadSnapshotChunk(ctx, types.ToLoadSnapshotChunkRequest(req).GetLoadSnapshotChunk(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) EndBlockSync(params types.RequestEndBlock) (*types.ResponseEndBlock, error) {
-	reqres := cli.EndBlockAsync(params)
-	return cli.finishSyncCall(reqres).GetEndBlock(), cli.Error()
+func (cli *grpcClient) ApplySnapshotChunk(ctx context.Context, req *types.ApplySnapshotChunkRequest) (*types.ApplySnapshotChunkResponse, error) {
+	return cli.client.ApplySnapshotChunk(ctx, types.ToApplySnapshotChunkRequest(req).GetApplySnapshotChunk(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) ListSnapshotsSync(params types.RequestListSnapshots) (*types.ResponseListSnapshots, error) {
-	reqres := cli.ListSnapshotsAsync(params)
-	return cli.finishSyncCall(reqres).GetListSnapshots(), cli.Error()
+func (cli *grpcClient) PrepareProposal(ctx context.Context, req *types.PrepareProposalRequest) (*types.PrepareProposalResponse, error) {
+	return cli.client.PrepareProposal(ctx, types.ToPrepareProposalRequest(req).GetPrepareProposal(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) OfferSnapshotSync(params types.RequestOfferSnapshot) (*types.ResponseOfferSnapshot, error) {
-	reqres := cli.OfferSnapshotAsync(params)
-	return cli.finishSyncCall(reqres).GetOfferSnapshot(), cli.Error()
+func (cli *grpcClient) ProcessProposal(ctx context.Context, req *types.ProcessProposalRequest) (*types.ProcessProposalResponse, error) {
+	return cli.client.ProcessProposal(ctx, types.ToProcessProposalRequest(req).GetProcessProposal(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) LoadSnapshotChunkSync(
-	params types.RequestLoadSnapshotChunk,
-) (*types.ResponseLoadSnapshotChunk, error) {
-	reqres := cli.LoadSnapshotChunkAsync(params)
-	return cli.finishSyncCall(reqres).GetLoadSnapshotChunk(), cli.Error()
+func (cli *grpcClient) ExtendVote(ctx context.Context, req *types.ExtendVoteRequest) (*types.ExtendVoteResponse, error) {
+	return cli.client.ExtendVote(ctx, types.ToExtendVoteRequest(req).GetExtendVote(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) ApplySnapshotChunkSync(
-	params types.RequestApplySnapshotChunk,
-) (*types.ResponseApplySnapshotChunk, error) {
-	reqres := cli.ApplySnapshotChunkAsync(params)
-	return cli.finishSyncCall(reqres).GetApplySnapshotChunk(), cli.Error()
+func (cli *grpcClient) VerifyVoteExtension(ctx context.Context, req *types.VerifyVoteExtensionRequest) (*types.VerifyVoteExtensionResponse, error) {
+	return cli.client.VerifyVoteExtension(ctx, types.ToVerifyVoteExtensionRequest(req).GetVerifyVoteExtension(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) PrepareProposalSync(
-	params types.RequestPrepareProposal,
-) (*types.ResponsePrepareProposal, error) {
-	reqres := cli.PrepareProposalAsync(params)
-	return cli.finishSyncCall(reqres).GetPrepareProposal(), cli.Error()
-}
-
-func (cli *grpcClient) ProcessProposalSync(params types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
-	reqres := cli.ProcessProposalAsync(params)
-	return cli.finishSyncCall(reqres).GetProcessProposal(), cli.Error()
+func (cli *grpcClient) FinalizeBlock(ctx context.Context, req *types.FinalizeBlockRequest) (*types.FinalizeBlockResponse, error) {
+	return cli.client.FinalizeBlock(ctx, types.ToFinalizeBlockRequest(req).GetFinalizeBlock(), grpc.WaitForReady(true))
 }

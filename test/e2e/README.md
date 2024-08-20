@@ -7,7 +7,48 @@ make
 ./build/runner -f networks/ci.toml
 ```
 
-This creates and runs a testnet named `ci` under `networks/ci/` (determined by the manifest filename).
+This creates and runs a testnet named `ci` under `networks/ci/`.
+
+To generate the testnet files in a different directory, run:
+```sh
+./build/runner -f networks/ci.toml -d networks/foo/bar/
+```
+
+### Fast compiling
+
+If you need to run experiments on a testnet, you will probably want to compile the code multiple
+times and `make` could be slow. This is because `make` builds an image by first copying all the
+source code into it and then compiling the binary from inside. This is needed if, for example, you
+want to create a binary that uses a different database (as in `networks/ci.toml`), or to emulate
+latencies by running the Python script.
+
+If you just need to (re-)compile and run the binary without any extra building options, you can use
+`make fast`, which will first compile the code and then make a slim Docker image with the binary.
+For example:
+```sh
+make fast
+./build/runner -f networks/simple.toml
+```
+
+## Conceptual Overview
+
+End-to-end testnets are used to test Tendermint functionality as a user would use it, by spinning up a set of nodes with various configurations and making sure the nodes and network behave correctly. The background for the E2E test suite is outlined in [RFC-001](https://github.com/tendermint/tendermint/blob/master/docs/architecture/adr-066-e2e-testing.md).
+
+The end-to-end tests can be thought of in this manner:
+
+1. Does a certain (valid!) testnet configuration result in a block-producing network where all nodes eventually reach the latest height?
+
+2. If so, does each node in that network satisfy all invariants specified by the Go E2E tests?
+
+The above should hold for any arbitrary, valid network configuration, and that configuration space  should be searched and tested by randomly generating testnets.
+
+A testnet configuration is specified as a TOML testnet manifest (see below). The testnet runner uses the manifest to configure a set of Docker containers and start them in some order. The manifests can be written manually (to test specific configurations) or generated randomly by the testnet generator (to test a wide range of configuration permutations).
+
+When running a testnet, the runner will first start the Docker nodes in some sequence, submit random transactions, and wait for the nodes to come online and the first blocks to be produced. This may involve e.g. waiting for nodes to block sync and/or state sync. If specified, it will then run any misbehaviors (e.g. double-signing) and perturbations (e.g. killing or disconnecting nodes). It then waits for the testnet to stabilize, with all nodes online and having reached the latest height.
+
+Once the testnet stabilizes, a set of Go end-to-end tests are run against the live testnet to verify network invariants (for example that blocks are identical across nodes). These use the RPC client to interact with the network, and should consider the entire network as a black box (i.e. it should not test any network or node internals, only externally visible behavior via RPC). The tests may use the `testNode()` helper to run parallel tests against each individual testnet node, and/or inspect the full blockchain history via `fetchBlockChain()`.
+
+The tests must take into account the network and/or node configuration, and tolerate that the network is still live and producing blocks. For example, validator tests should only run against nodes that are actually validators, and take into account the node's block retention and/or state sync configuration to not query blocks that don't exist.
 
 ## Testnet Manifests
 
@@ -48,7 +89,7 @@ generator. For example:
 # the CometBFT version in the current local code (as specified in
 # ../../version/version.go).
 #
-# In the example below, if the local version.TMCoreSemVer value is "v0.34.24",
+# In the example below, if the local version value is "v0.34.24",
 # for example, and the latest official release is v0.34.23, then 1/3rd of the
 # network will run v0.34.23 and the remaining 2/3rds will run the E2E node built
 # from the local code.
@@ -88,7 +129,7 @@ The test runner has the following stages, which can also be executed explicitly 
 
 Auxiliary commands:
 
-* `logs`: outputs all node logs.
+* `logs`: outputs all node logs (specify `--split` to output individual logs).
 
 * `tail`: tails (follows) node logs until canceled.
 
@@ -105,6 +146,8 @@ To run tests manually, set the `E2E_MANIFEST` environment variable to the path o
 E2E_MANIFEST=networks/ci.toml go test -v ./tests/...
 ```
 
+If the testnet files are located in a custom directory, you need to set it in the `E2E_TESTNET_DIR` environment variable.
+
 Optionally, `E2E_NODE` specifies the name of a single testnet node to test.
 
 These environment variables can also be specified in `tests/e2e_test.go` to run tests from an editor or IDE:
@@ -114,6 +157,7 @@ func init() {
 	// This can be used to manually specify a testnet manifest and/or node to
 	// run tests against. The testnet must have been started by the runner first.
 	os.Setenv("E2E_MANIFEST", "networks/ci.toml")
+	os.Setenv("E2E_TESTNET_DIR", "networks/foo")
 	os.Setenv("E2E_NODE", "validator01")
 }
 ```
@@ -162,9 +206,9 @@ Docker does not enable IPv6 by default. To do so, enter the following in
 
 It is also possible to run a simple benchmark on a testnet. This is done through the `benchmark` command. This manages the entire process: setting up the environment, starting the test net, waiting for a considerable amount of blocks to be used (currently 100), and then returning the following metrics from the sample of the blockchain:
 
-- Average time to produce a block
-- Standard deviation of producing a block
-- Minimum and maximum time to produce a block
+* Average time to produce a block
+* Standard deviation of producing a block
+* Minimum and maximum time to produce a block
 
 ## Running Individual Nodes
 

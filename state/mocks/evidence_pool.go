@@ -14,13 +14,17 @@ type EvidencePool struct {
 	mock.Mock
 }
 
-// AddEvidence provides a mock function with given fields: _a0
-func (_m *EvidencePool) AddEvidence(_a0 types.Evidence) error {
-	ret := _m.Called(_a0)
+// AddEvidence provides a mock function with given fields: ev
+func (_m *EvidencePool) AddEvidence(ev types.Evidence) error {
+	ret := _m.Called(ev)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddEvidence")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(types.Evidence) error); ok {
-		r0 = rf(_a0)
+		r0 = rf(ev)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -28,13 +32,17 @@ func (_m *EvidencePool) AddEvidence(_a0 types.Evidence) error {
 	return r0
 }
 
-// CheckEvidence provides a mock function with given fields: _a0
-func (_m *EvidencePool) CheckEvidence(_a0 types.EvidenceList) error {
-	ret := _m.Called(_a0)
+// CheckEvidence provides a mock function with given fields: evList
+func (_m *EvidencePool) CheckEvidence(evList types.EvidenceList) error {
+	ret := _m.Called(evList)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckEvidence")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(types.EvidenceList) error); ok {
-		r0 = rf(_a0)
+		r0 = rf(evList)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -46,7 +54,15 @@ func (_m *EvidencePool) CheckEvidence(_a0 types.EvidenceList) error {
 func (_m *EvidencePool) PendingEvidence(maxBytes int64) ([]types.Evidence, int64) {
 	ret := _m.Called(maxBytes)
 
+	if len(ret) == 0 {
+		panic("no return value specified for PendingEvidence")
+	}
+
 	var r0 []types.Evidence
+	var r1 int64
+	if rf, ok := ret.Get(0).(func(int64) ([]types.Evidence, int64)); ok {
+		return rf(maxBytes)
+	}
 	if rf, ok := ret.Get(0).(func(int64) []types.Evidence); ok {
 		r0 = rf(maxBytes)
 	} else {
@@ -55,7 +71,6 @@ func (_m *EvidencePool) PendingEvidence(maxBytes int64) ([]types.Evidence, int64
 		}
 	}
 
-	var r1 int64
 	if rf, ok := ret.Get(1).(func(int64) int64); ok {
 		r1 = rf(maxBytes)
 	} else {
@@ -65,18 +80,17 @@ func (_m *EvidencePool) PendingEvidence(maxBytes int64) ([]types.Evidence, int64
 	return r0, r1
 }
 
-// Update provides a mock function with given fields: _a0, _a1
-func (_m *EvidencePool) Update(_a0 state.State, _a1 types.EvidenceList) {
-	_m.Called(_a0, _a1)
-}
-
-type mockConstructorTestingTNewEvidencePool interface {
-	mock.TestingT
-	Cleanup(func())
+// Update provides a mock function with given fields: _a0, evList
+func (_m *EvidencePool) Update(_a0 state.State, evList types.EvidenceList) {
+	_m.Called(_a0, evList)
 }
 
 // NewEvidencePool creates a new instance of EvidencePool. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewEvidencePool(t mockConstructorTestingTNewEvidencePool) *EvidencePool {
+// The first argument is typically a *testing.T value.
+func NewEvidencePool(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *EvidencePool {
 	mock := &EvidencePool{}
 	mock.Mock.Test(t)
 
