@@ -45,7 +45,7 @@ const (
 	defaultSendTimeout         = 10 * time.Second
 	defaultPingInterval        = 60 * time.Second
 	defaultPongTimeout         = 45 * time.Second
-	defaultMsgRecvQueueSize    = 1000
+	defaultMsgRecvQueueSize    = 5000
 )
 
 type (
