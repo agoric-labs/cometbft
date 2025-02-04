@@ -47,8 +47,10 @@ require (
 	github.com/cometbft/cometbft-db v0.9.5
 	github.com/cosmos/gogoproto v1.7.0
 	github.com/go-git/go-git/v5 v5.13.0
+	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.4
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/tendermint/tendermint v0.0.0-00010101000000-000000000000
 	golang.org/x/sync v0.10.0
 	gonum.org/v1/gonum v0.15.1
 	google.golang.org/protobuf v1.36.1
@@ -132,3 +134,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools v2.2.0+incompatible // indirect
 )
+
+replace github.com/tendermint/tendermint => .
