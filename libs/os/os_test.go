@@ -53,7 +53,7 @@ func TestEnsureDir(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should fail on file.
-	err = os.WriteFile(filepath.Join(tmp, "file"), []byte{}, 0o644)
+	err = os.WriteFile(filepath.Join(tmp, "file"), []byte{}, 0644)
 	require.NoError(t, err)
 	err = EnsureDir(filepath.Join(tmp, "file"), 0o755)
 	require.Error(t, err)
@@ -83,7 +83,7 @@ func TestTrickedTruncation(t *testing.T) {
 
 	originalWALPath := filepath.Join(tmpDir, "wal")
 	originalWALContent := []byte("I AM BECOME DEATH, DESTROYER OF ALL WORLDS!")
-	if err := os.WriteFile(originalWALPath, originalWALContent, 0o755); err != nil {
+	if err := os.WriteFile(originalWALPath, originalWALContent, 0755); err != nil {
 		t.Fatal(err)
 	}
 

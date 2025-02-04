@@ -116,7 +116,6 @@ type EventData interface {
 
 
 
-
 ## Type [EventSwitch](/src/target/events.go?s=560:771#L29)
 
 ``` go

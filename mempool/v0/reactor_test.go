@@ -14,17 +14,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	abci "github.com/tendermint/tendermint/abci/types"
-	cfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/mempool"
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/p2p/mock"
-	memproto "github.com/tendermint/tendermint/proto/tendermint/mempool"
-	"github.com/tendermint/tendermint/proxy"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/abci/example/kvstore"
+	abci "github.com/cometbft/cometbft/abci/types"
+	cfg "github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	"github.com/cometbft/cometbft/mempool"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/p2p/mock"
+	memproto "github.com/cometbft/cometbft/proto/tendermint/mempool"
+	"github.com/cometbft/cometbft/proxy"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -292,31 +292,6 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 		)
 		reactor.AddPeer(peer)
 	}
-}
-
-func TestLegacyReactorReceiveBasic(t *testing.T) {
-	config := cfg.TestConfig()
-	const N = 1
-	reactors := makeAndConnectReactors(config, N)
-	var (
-		reactor = reactors[0]
-		peer    = mock.NewPeer(nil)
-	)
-	defer func() {
-		err := reactor.Stop()
-		assert.NoError(t, err)
-	}()
-
-	reactor.InitPeer(peer)
-	reactor.AddPeer(peer)
-	m := &memproto.Txs{}
-	wm := m.Wrap()
-	msg, err := proto.Marshal(wm)
-	assert.NoError(t, err)
-
-	assert.NotPanics(t, func() {
-		reactor.Receive(mempool.MempoolChannel, peer, msg)
-	})
 }
 
 // Test the experimental feature that limits the number of outgoing connections for gossiping

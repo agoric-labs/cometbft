@@ -7,12 +7,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
+	e2e "github.com/cometbft/cometbft/test/e2e/pkg"
+	"github.com/cometbft/cometbft/version"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/version"
 )
 
 var (
@@ -35,28 +36,29 @@ var (
 	nodeDatabases = uniformChoice{"goleveldb", "cleveldb", "rocksdb", "boltdb", "badgerdb"}
 	ipv6          = uniformChoice{false, true}
 	// FIXME: grpc disabled due to https://github.com/tendermint/tendermint/issues/5439
-	nodeABCIProtocols    = uniformChoice{"unix", "tcp", "builtin"} // "grpc"
-	nodePrivvalProtocols = uniformChoice{"file", "unix", "tcp"}
-	// FIXME: v2 disabled due to flake
-	nodeFastSyncs         = uniformChoice{"v0"} // "v2"
+	nodeABCIProtocols     = uniformChoice{"unix", "tcp", "builtin"} // "grpc"
+	nodePrivvalProtocols  = uniformChoice{"file", "unix", "tcp"}
+	nodeBlockSyncs        = uniformChoice{"v0"} // "v2"
 	nodeStateSyncs        = uniformChoice{false, true}
 	nodeMempools          = uniformChoice{"v0", "v1"}
 	nodePersistIntervals  = uniformChoice{0, 1, 5}
 	nodeSnapshotIntervals = uniformChoice{0, 3}
-	nodeRetainBlocks      = uniformChoice{0, 1, 5}
-	nodePerturbations     = probSetChoice{
+	nodeRetainBlocks      = uniformChoice{
+		0,
+		2 * int(e2e.EvidenceAgeHeight),
+		4 * int(e2e.EvidenceAgeHeight),
+	}
+	evidence          = uniformChoice{0, 1, 10}
+	abciDelays        = uniformChoice{"none", "small", "large"}
+	nodePerturbations = probSetChoice{
 		"disconnect": 0.1,
 		"pause":      0.1,
 		"kill":       0.1,
 		"restart":    0.1,
 		"upgrade":    0.3,
 	}
-	nodeMisbehaviors = weightedChoice{
-		// FIXME: evidence disabled due to node panicking when not
-		// having sufficient block history to process evidence.
-		// https://github.com/tendermint/tendermint/issues/5617
-		// misbehaviorOption{"double-prevote"}: 1,
-		misbehaviorOption{}: 9,
+	lightNodePerturbations = probSetChoice{
+		"upgrade": 0.3,
 	}
 	lightNodePerturbations = probSetChoice{
 		"upgrade": 0.3,
@@ -127,9 +129,21 @@ func generateTestnet(r *rand.Rand, opt map[string]interface{}, upgradeVersion st
 		InitialState:     opt["initialState"].(map[string]string),
 		Validators:       &map[string]int64{},
 		ValidatorUpdates: map[string]map[string]int64{},
+		Evidence:         evidence.Choose(r).(int),
 		Nodes:            map[string]*e2e.ManifestNode{},
 		UpgradeVersion:   upgradeVersion,
 		Prometheus:       prometheus,
+	}
+
+	switch abciDelays.Choose(r).(string) {
+	case "none":
+	case "small":
+		manifest.PrepareProposalDelay = 100 * time.Millisecond
+		manifest.ProcessProposalDelay = 100 * time.Millisecond
+	case "large":
+		manifest.PrepareProposalDelay = 200 * time.Millisecond
+		manifest.ProcessProposalDelay = 200 * time.Millisecond
+		manifest.CheckTxDelay = 20 * time.Millisecond
 	}
 
 	var numSeeds, numValidators, numFulls, numLightClients int
@@ -267,7 +281,7 @@ func generateNode(
 		StartAt:          startAt,
 		Database:         nodeDatabases.Choose(r).(string),
 		PrivvalProtocol:  nodePrivvalProtocols.Choose(r).(string),
-		FastSync:         nodeFastSyncs.Choose(r).(string),
+		BlockSync:        nodeBlockSyncs.Choose(r).(string),
 		Mempool:          nodeMempools.Choose(r).(string),
 		StateSync:        nodeStateSyncs.Choose(r).(bool) && startAt > 0,
 		PersistInterval:  ptrUint64(uint64(nodePersistIntervals.Choose(r).(int))),
@@ -281,17 +295,6 @@ func generateNode(
 	if forceArchive {
 		node.RetainBlocks = 0
 		node.SnapshotInterval = 3
-	}
-
-	if node.Mode == string(e2e.ModeValidator) {
-		misbehaveAt := startAt + 5 + int64(r.Intn(10))
-		if startAt == 0 {
-			misbehaveAt += initialHeight - 1
-		}
-		node.Misbehaviors = nodeMisbehaviors.Choose(r).(misbehaviorOption).atHeight(misbehaveAt)
-		if len(node.Misbehaviors) != 0 {
-			node.PrivvalProtocol = "file"
-		}
 	}
 
 	// If a node which does not persist state also does not retain blocks, randomly
@@ -334,17 +337,114 @@ func ptrUint64(i uint64) *uint64 {
 	return &i
 }
 
-type misbehaviorOption struct {
-	misbehavior string
+// Parses strings like "v0.34.21:1,v0.34.22:2" to represent two versions
+// ("v0.34.21" and "v0.34.22") with weights of 1 and 2 respectively.
+// Versions may be specified as cometbft/e2e-node:v0.34.27-alpha.1:1 or
+// ghcr.io/informalsystems/tendermint:v0.34.26:1.
+// If only the tag and weight are specified, cometbft/e2e-node is assumed.
+// Also returns the last version in the list, which will be used for updates.
+func parseWeightedVersions(s string) (weightedChoice, string, error) {
+	wc := make(weightedChoice)
+	lv := ""
+	wvs := strings.Split(strings.TrimSpace(s), ",")
+	for _, wv := range wvs {
+		parts := strings.Split(strings.TrimSpace(wv), ":")
+		var ver string
+		if len(parts) == 2 {
+			ver = strings.TrimSpace(strings.Join([]string{"cometbft/e2e-node", parts[0]}, ":"))
+		} else if len(parts) == 3 {
+			ver = strings.TrimSpace(strings.Join([]string{parts[0], parts[1]}, ":"))
+		} else {
+			return nil, "", fmt.Errorf("unexpected weight:version combination: %s", wv)
+		}
+
+		wt, err := strconv.Atoi(strings.TrimSpace(parts[len(parts)-1]))
+		if err != nil {
+			return nil, "", fmt.Errorf("unexpected weight \"%s\": %w", parts[1], err)
+		}
+
+		if wt < 1 {
+			return nil, "", errors.New("version weights must be >= 1")
+		}
+		wc[ver] = uint(wt)
+		lv = ver
+	}
+	return wc, lv, nil
 }
 
-func (m misbehaviorOption) atHeight(height int64) map[string]string {
-	misbehaviorMap := make(map[string]string)
-	if m.misbehavior == "" {
-		return misbehaviorMap
+// Extracts the latest release version from the given Git repository. Uses the
+// current version of CometBFT to establish the "major" version
+// currently in use.
+func gitRepoLatestReleaseVersion(gitRepoDir string) (string, error) {
+	opts := &git.PlainOpenOptions{
+		DetectDotGit: true,
 	}
-	misbehaviorMap[strconv.Itoa(int(height))] = m.misbehavior
-	return misbehaviorMap
+	r, err := git.PlainOpenWithOptions(gitRepoDir, opts)
+	if err != nil {
+		return "", err
+	}
+	tags := make([]string, 0)
+	tagObjs, err := r.TagObjects()
+	if err != nil {
+		return "", err
+	}
+	err = tagObjs.ForEach(func(tagObj *object.Tag) error {
+		tags = append(tags, tagObj.Name)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return findLatestReleaseTag(version.TMCoreSemVer, tags)
+}
+
+func findLatestReleaseTag(baseVer string, tags []string) (string, error) {
+	baseSemVer, err := semver.NewVersion(strings.Split(baseVer, "-")[0])
+	if err != nil {
+		return "", fmt.Errorf("failed to parse base version \"%s\": %w", baseVer, err)
+	}
+	compVer := fmt.Sprintf("%d.%d", baseSemVer.Major(), baseSemVer.Minor())
+	// Build our version comparison string
+	// See https://github.com/Masterminds/semver#caret-range-comparisons-major for details
+	compStr := "^ " + compVer
+	verCon, err := semver.NewConstraint(compStr)
+	if err != nil {
+		return "", err
+	}
+	var latestVer *semver.Version
+	for _, tag := range tags {
+		if !strings.HasPrefix(tag, "v") {
+			continue
+		}
+		curVer, err := semver.NewVersion(tag)
+		// Skip tags that are not valid semantic versions
+		if err != nil {
+			continue
+		}
+		// Skip pre-releases
+		if len(curVer.Prerelease()) != 0 {
+			continue
+		}
+		// Skip versions that don't match our constraints
+		if !verCon.Check(curVer) {
+			continue
+		}
+		if latestVer == nil || curVer.GreaterThan(latestVer) {
+			latestVer = curVer
+		}
+	}
+	// No relevant latest version (will cause the generator to only use the tip
+	// of the current branch)
+	if latestVer == nil {
+		return "", nil
+	}
+	// Ensure the version string has a "v" prefix, because all CometBFT E2E
+	// node Docker images' versions have a "v" prefix.
+	vs := latestVer.String()
+	if !strings.HasPrefix(vs, "v") {
+		return "v" + vs, nil
+	}
+	return vs, nil
 }
 
 // Parses strings like "v0.34.21:1,v0.34.22:2" to represent two versions

@@ -10,14 +10,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
 )
 
 func TestWriteFileAtomic(t *testing.T) {
 	var (
 		data             = []byte(cmtrand.Str(cmtrand.Intn(2048)))
 		old              = cmtrand.Bytes(cmtrand.Intn(2048))
-		perm os.FileMode = 0o600
+		perm os.FileMode = 0600
 	)
 
 	f, err := os.CreateTemp("/tmp", "write-atomic-test-")
@@ -26,7 +26,7 @@ func TestWriteFileAtomic(t *testing.T) {
 	}
 	defer os.Remove(f.Name())
 
-	if err = os.WriteFile(f.Name(), old, 0o600); err != nil {
+	if err = os.WriteFile(f.Name(), old, 0600); err != nil {
 		t.Fatal(err)
 	}
 

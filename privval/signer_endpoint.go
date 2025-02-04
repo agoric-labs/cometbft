@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/protoio"
-	"github.com/tendermint/tendermint/libs/service"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	privvalproto "github.com/tendermint/tendermint/proto/tendermint/privval"
+	"github.com/cometbft/cometbft/libs/protoio"
+	"github.com/cometbft/cometbft/libs/service"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	privvalproto "github.com/cometbft/cometbft/proto/tendermint/privval"
 )
 
 const (
@@ -53,11 +53,9 @@ func (se *signerEndpoint) GetAvailableConnection(connectionAvailableCh chan net.
 
 // TryGetConnection retrieves a connection if it is already available
 func (se *signerEndpoint) WaitConnection(connectionAvailableCh chan net.Conn, maxWait time.Duration) error {
-	se.connMtx.Lock()
-	defer se.connMtx.Unlock()
-
 	select {
-	case se.conn = <-connectionAvailableCh:
+	case conn := <-connectionAvailableCh:
+		se.SetConnection(conn)
 	case <-time.After(maxWait):
 		return ErrConnectionTimeout
 	}

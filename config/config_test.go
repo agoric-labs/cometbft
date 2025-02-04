@@ -36,6 +36,11 @@ func TestConfigValidateBasic(t *testing.T) {
 	// tamper with timeout_propose
 	cfg.Consensus.TimeoutPropose = -10 * time.Second
 	assert.Error(t, cfg.ValidateBasic())
+	cfg.Consensus.TimeoutPropose = 3 * time.Second
+
+	cfg.Consensus.CreateEmptyBlocks = false
+	cfg.Mempool.Type = MempoolTypeNop
+	assert.Error(t, cfg.ValidateBasic())
 }
 
 func TestTLSConfiguration(t *testing.T) {
@@ -120,6 +125,9 @@ func TestMempoolConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+
+	reflect.ValueOf(cfg).Elem().FieldByName("Type").SetString("invalid")
+	assert.Error(t, cfg.ValidateBasic())
 }
 
 func TestStateSyncConfigValidateBasic(t *testing.T) {
@@ -127,13 +135,13 @@ func TestStateSyncConfigValidateBasic(t *testing.T) {
 	require.NoError(t, cfg.ValidateBasic())
 }
 
-func TestFastSyncConfigValidateBasic(t *testing.T) {
-	cfg := TestFastSyncConfig()
+func TestBlockSyncConfigValidateBasic(t *testing.T) {
+	cfg := TestBlockSyncConfig()
 	assert.NoError(t, cfg.ValidateBasic())
 
 	// tamper with version
 	cfg.Version = "v1"
-	assert.NoError(t, cfg.ValidateBasic())
+	assert.Error(t, cfg.ValidateBasic())
 
 	cfg.Version = "invalid"
 	assert.Error(t, cfg.ValidateBasic())
@@ -141,6 +149,7 @@ func TestFastSyncConfigValidateBasic(t *testing.T) {
 
 //nolint:lll
 func TestConsensusConfig_ValidateBasic(t *testing.T) {
+	//nolint: lll
 	testcases := map[string]struct {
 		modify    func(*ConsensusConfig)
 		expectErr bool

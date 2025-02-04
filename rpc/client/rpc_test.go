@@ -14,18 +14,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	mempl "github.com/tendermint/tendermint/mempool"
-	"github.com/tendermint/tendermint/rpc/client"
-	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
-	rpclocal "github.com/tendermint/tendermint/rpc/client/local"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
-	rpctest "github.com/tendermint/tendermint/rpc/test"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	mempl "github.com/cometbft/cometbft/mempool"
+	"github.com/cometbft/cometbft/rpc/client"
+	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	rpclocal "github.com/cometbft/cometbft/rpc/client/local"
+	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	rpcclient "github.com/cometbft/cometbft/rpc/jsonrpc/client"
+	rpctest "github.com/cometbft/cometbft/rpc/test"
+	"github.com/cometbft/cometbft/types"
 )
 
 var (
@@ -284,6 +284,15 @@ func TestAppCalls(t *testing.T) {
 		blockByHash, err := c.BlockByHash(context.Background(), block.BlockID.Hash)
 		require.NoError(err)
 		require.Equal(block, blockByHash)
+
+		// check that the header matches the block hash
+		header, err := c.Header(context.Background(), &apph)
+		require.NoError(err)
+		require.Equal(block.Block.Header, *header.Header)
+
+		headerByHash, err := c.HeaderByHash(context.Background(), block.BlockID.Hash)
+		require.NoError(err)
+		require.Equal(header, headerByHash)
 
 		// now check the results
 		blockResults, err := c.BlockResults(context.Background(), &txh)

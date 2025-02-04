@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtpubsub "github.com/tendermint/tendermint/libs/pubsub"
-	cmtquery "github.com/tendermint/tendermint/libs/pubsub/query"
-	nm "github.com/tendermint/tendermint/node"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/core"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/libs/bytes"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
+	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
+	nm "github.com/cometbft/cometbft/node"
+	rpcclient "github.com/cometbft/cometbft/rpc/client"
+	"github.com/cometbft/cometbft/rpc/core"
+	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 /*
@@ -169,6 +169,14 @@ func (c *Local) BlockResults(ctx context.Context, height *int64) (*ctypes.Result
 	return core.BlockResults(c.ctx, height)
 }
 
+func (c *Local) Header(ctx context.Context, height *int64) (*ctypes.ResultHeader, error) {
+	return core.Header(c.ctx, height)
+}
+
+func (c *Local) HeaderByHash(ctx context.Context, hash bytes.HexBytes) (*ctypes.ResultHeader, error) {
+	return core.HeaderByHash(c.ctx, hash)
+}
+
 func (c *Local) Commit(ctx context.Context, height *int64) (*ctypes.ResultCommit, error) {
 	return core.Commit(c.ctx, height)
 }
@@ -259,7 +267,7 @@ func (c *Local) eventsRoutine(
 				return
 			}
 
-			c.Logger.Error("subscription was cancelled, resubscribing...", "err", sub.Err(), "query", q.String())
+			c.Logger.Error("subscription was canceled, resubscribing...", "err", sub.Err(), "query", q.String())
 			sub = c.resubscribe(subscriber, q)
 			if sub == nil { // client was stopped
 				return

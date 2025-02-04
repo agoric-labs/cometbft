@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/cmap"
-	"github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/libs/service"
-	"github.com/tendermint/tendermint/p2p/conn"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/cmap"
+	"github.com/cometbft/cometbft/libs/rand"
+	"github.com/cometbft/cometbft/libs/service"
+	"github.com/cometbft/cometbft/p2p/conn"
+	"github.com/cosmos/gogoproto/proto"
 )
 
 const (
@@ -266,7 +266,7 @@ func (sw *Switch) OnStop() {
 // to send for defaultSendTimeoutSeconds. Returns a channel which receives
 // success values for each attempted send (false if times out). Channel will be
 // closed once msg bytes are sent to all peers (or time out).
-// BroadcastEnvelope sends to the peers using the SendEnvelope method.
+// BroadcastEnvelopes sends to the peers using the SendEnvelope method.
 //
 // NOTE: BroadcastEnvelope uses goroutines, so order of broadcast may not be preserved.
 func (sw *Switch) BroadcastEnvelope(e Envelope) chan bool {
@@ -280,41 +280,7 @@ func (sw *Switch) BroadcastEnvelope(e Envelope) chan bool {
 	for _, peer := range peers {
 		go func(p Peer) {
 			defer wg.Done()
-			success := SendEnvelopeShim(p, e, sw.Logger)
-			successChan <- success
-		}(peer)
-	}
-
-	go func() {
-		wg.Wait()
-		close(successChan)
-	}()
-
-	return successChan
-}
-
-// Broadcast runs a go routine for each attempted send, which will block trying
-// to send for defaultSendTimeoutSeconds. Returns a channel which receives
-// success values for each attempted send (false if times out). Channel will be
-// closed once msg bytes are sent to all peers (or time out).
-// Broadcast sends to the peers using the Send method.
-//
-// NOTE: Broadcast uses goroutines, so order of broadcast may not be preserved.
-//
-// Deprecated: code looking to broadcast data to all peers should use BroadcastEnvelope.
-// Broadcast will be removed in 0.37.
-func (sw *Switch) Broadcast(chID byte, msgBytes []byte) chan bool {
-	sw.Logger.Debug("Broadcast", "channel", chID)
-
-	peers := sw.peers.List()
-	var wg sync.WaitGroup
-	wg.Add(len(peers))
-	successChan := make(chan bool, len(peers))
-
-	for _, peer := range peers {
-		go func(p Peer) {
-			defer wg.Done()
-			success := p.Send(chID, msgBytes)
+			success := p.SendEnvelope(e)
 			successChan <- success
 		}(peer)
 	}
@@ -420,7 +386,8 @@ func (sw *Switch) stopAndRemovePeer(peer Peer, reason interface{}) {
 }
 
 // reconnectToPeer tries to reconnect to the addr, first repeatedly
-// with a fixed interval, then with exponential backoff.
+// with a fixed interval (approximately 2 minutes), then with
+// exponential backoff (approximately close to 24 hours).
 // If no success after all that, it stops trying, and leaves it
 // to the PEX/Addrbook to find the peer with the addr again
 // NOTE: this will keep trying even if the handshake or auth fails.
@@ -436,6 +403,7 @@ func (sw *Switch) reconnectToPeer(addr *NetAddress) {
 
 	start := time.Now()
 	sw.Logger.Info("Reconnecting to peer", "addr", addr)
+
 	for i := 0; i < reconnectAttempts; i++ {
 		if !sw.IsRunning() {
 			return
@@ -456,7 +424,7 @@ func (sw *Switch) reconnectToPeer(addr *NetAddress) {
 
 	sw.Logger.Error("Failed to reconnect to peer. Beginning exponential backoff",
 		"addr", addr, "elapsed", time.Since(start))
-	for i := 0; i < reconnectBackOffAttempts; i++ {
+	for i := 1; i <= reconnectBackOffAttempts; i++ {
 		if !sw.IsRunning() {
 			return
 		}

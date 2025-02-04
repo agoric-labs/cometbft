@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/p2p/pex"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/p2p/pex"
 )
 
 var addrBook = pex.NewAddrBook("./testdata/addrbook.json", true)
@@ -24,8 +24,7 @@ func Fuzz(data []byte) int {
 	}
 
 	// Also, make sure PickAddress always returns a non-nil address.
-	//nolint:gosec // G404: Use of weak random number generator (math/rand instead of crypto/rand)
-	bias := rand.Intn(100)
+	bias := rand.Intn(100) //nolint:gosec
 	if p := addrBook.PickAddress(bias); p == nil {
 		panic(fmt.Sprintf("picked a nil address (bias: %d, addrBook size: %v)",
 			bias, addrBook.Size()))

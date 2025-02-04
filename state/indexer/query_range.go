@@ -4,8 +4,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/tendermint/tendermint/libs/pubsub/query"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/libs/pubsub/query"
+	"github.com/cometbft/cometbft/types"
 )
 
 // QueryRanges defines a mapping between a composite event key and a QueryRange.
@@ -83,19 +83,17 @@ func (qr QueryRange) UpperBoundValue() interface{} {
 }
 
 // LookForRangesWithHeight returns a mapping of QueryRanges and the matching indexes in
-// the provided query conditions. If we are matching attributes within events
-// we need to remember the height range from the condition
-func LookForRangesWithHeight(conditions []query.Condition) (ranges QueryRanges, indexes []int, heightRange QueryRange) {
-	ranges = make(QueryRanges)
+// the provided query conditions.
+func LookForRangesWithHeight(conditions []query.Condition) (queryRange QueryRanges, indexes []int, heightRange QueryRange) {
+	queryRange = make(QueryRanges)
 	for i, c := range conditions {
-		heightKey := false
 		if IsRangeOperation(c.Op) {
-			r, ok := ranges[c.CompositeKey]
+			heightKey := c.CompositeKey == types.BlockHeightKey || c.CompositeKey == types.TxHeightKey
+			r, ok := queryRange[c.CompositeKey]
 			if !ok {
 				r = QueryRange{Key: c.CompositeKey}
 				if c.CompositeKey == types.BlockHeightKey || c.CompositeKey == types.TxHeightKey {
 					heightRange = QueryRange{Key: c.CompositeKey}
-					heightKey = true
 				}
 			}
 
@@ -129,18 +127,15 @@ func LookForRangesWithHeight(conditions []query.Condition) (ranges QueryRanges, 
 				}
 			}
 
-			ranges[c.CompositeKey] = r
+			queryRange[c.CompositeKey] = r
 			indexes = append(indexes, i)
 		}
 	}
 
-	return ranges, indexes, heightRange
+	return queryRange, indexes, heightRange
 }
 
-// LookForRanges returns a mapping of QueryRanges and the matching indexes in
-// the provided query conditions.
-//
-// Deprecated: This function will be replaced with LookForRangesWithHeight
+// Deprecated: This function is not used anymore and will be replaced with LookForRangesWithHeight
 func LookForRanges(conditions []query.Condition) (ranges QueryRanges, indexes []int) {
 	ranges = make(QueryRanges)
 	for i, c := range conditions {

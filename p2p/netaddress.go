@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	tmp2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	tmp2p "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
 // EmptyNetAddress defines the string representation of an empty NetAddress
@@ -329,7 +329,7 @@ func (na *NetAddress) ReachabilityTo(o *NetAddress) int {
 		case o.IP.To4() != nil:
 			return Ipv4
 		case tunneled:
-			// only prioritise ipv6 if we aren't tunnelling it.
+			// only prioritize ipv6 if we aren't tunneling it.
 			return Ipv6Weak
 		}
 		return Ipv6Strong

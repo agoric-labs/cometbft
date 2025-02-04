@@ -24,10 +24,13 @@ const (
 	// DefaultLogLevel defines a default log level as INFO.
 	DefaultLogLevel = "info"
 
-	// Mempool versions. V1 is prioritized mempool, v0 is regular mempool.
+	// Mempool versions. V1 is prioritized mempool (deprecated), v0 is regular mempool.
 	// Default is v0.
 	MempoolV0 = "v0"
 	MempoolV1 = "v1"
+
+	MempoolTypeFlood = "flood"
+	MempoolTypeNop   = "nop"
 )
 
 // NOTE: Most of the structs & relevant comments + the
@@ -68,15 +71,18 @@ type Config struct {
 	BaseConfig `mapstructure:",squash"`
 
 	// Options for services
-	RPC             *RPCConfig             `mapstructure:"rpc"`
-	P2P             *P2PConfig             `mapstructure:"p2p"`
-	Mempool         *MempoolConfig         `mapstructure:"mempool"`
-	StateSync       *StateSyncConfig       `mapstructure:"statesync"`
-	FastSync        *FastSyncConfig        `mapstructure:"fastsync"`
-	Consensus       *ConsensusConfig       `mapstructure:"consensus"`
-	Storage         *StorageConfig         `mapstructure:"storage"`
-	TxIndex         *TxIndexConfig         `mapstructure:"tx_index"`
-	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
+	RPC       *RPCConfig       `mapstructure:"rpc"`
+	P2P       *P2PConfig       `mapstructure:"p2p"`
+	Mempool   *MempoolConfig   `mapstructure:"mempool"`
+	StateSync *StateSyncConfig `mapstructure:"statesync"`
+	BlockSync *BlockSyncConfig `mapstructure:"blocksync"`
+	// TODO(williambanfield): remove this field once v0.37 is released.
+	// https://github.com/tendermint/tendermint/issues/9279
+	DeprecatedFastSyncConfig map[interface{}]interface{} `mapstructure:"fastsync"`
+	Consensus                *ConsensusConfig            `mapstructure:"consensus"`
+	Storage                  *StorageConfig              `mapstructure:"storage"`
+	TxIndex                  *TxIndexConfig              `mapstructure:"tx_index"`
+	Instrumentation          *InstrumentationConfig      `mapstructure:"instrumentation"`
 }
 
 // DefaultConfig returns a default configuration for a CometBFT node
@@ -87,7 +93,7 @@ func DefaultConfig() *Config {
 		P2P:             DefaultP2PConfig(),
 		Mempool:         DefaultMempoolConfig(),
 		StateSync:       DefaultStateSyncConfig(),
-		FastSync:        DefaultFastSyncConfig(),
+		BlockSync:       DefaultBlockSyncConfig(),
 		Consensus:       DefaultConsensusConfig(),
 		Storage:         DefaultStorageConfig(),
 		TxIndex:         DefaultTxIndexConfig(),
@@ -103,7 +109,7 @@ func TestConfig() *Config {
 		P2P:             TestP2PConfig(),
 		Mempool:         TestMempoolConfig(),
 		StateSync:       TestStateSyncConfig(),
-		FastSync:        TestFastSyncConfig(),
+		BlockSync:       TestBlockSyncConfig(),
 		Consensus:       TestConsensusConfig(),
 		Storage:         TestStorageConfig(),
 		TxIndex:         TestTxIndexConfig(),
@@ -139,8 +145,8 @@ func (cfg *Config) ValidateBasic() error {
 	if err := cfg.StateSync.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [statesync] section: %w", err)
 	}
-	if err := cfg.FastSync.ValidateBasic(); err != nil {
-		return fmt.Errorf("error in [fastsync] section: %w", err)
+	if err := cfg.BlockSync.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [blocksync] section: %w", err)
 	}
 	if err := cfg.Consensus.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [consensus] section: %w", err)
@@ -148,7 +154,36 @@ func (cfg *Config) ValidateBasic() error {
 	if err := cfg.Instrumentation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [instrumentation] section: %w", err)
 	}
+	if !cfg.Consensus.CreateEmptyBlocks && cfg.Mempool.Type == MempoolTypeNop {
+		return fmt.Errorf("`nop` mempool does not support create_empty_blocks = false")
+	}
 	return nil
+}
+
+func (cfg *Config) CheckDeprecated() []string {
+	var warnings []string
+	if cfg.Mempool.Version == MempoolV1 {
+		warnings = append(warnings, "prioritized mempool detected. This version of the mempool will be removed in the next major release.")
+	}
+	if cfg.Mempool.TTLNumBlocks != 0 {
+		warnings = append(warnings, "prioritized mempool key detected. This key, together with this version of the mempool, will be removed in the next major release.")
+	}
+	if cfg.Mempool.TTLDuration != 0 {
+		warnings = append(warnings, "prioritized mempool key detected. This key, together with this version of the mempool, will be removed in the next major release.")
+	}
+	if !cfg.BaseConfig.BlockSyncMode {
+		warnings = append(warnings, "disabled block_sync key detected. BlockSync will be enabled unconditionally in the next major release and this key will be removed.")
+	}
+	if cfg.DeprecatedFastSyncConfig != nil {
+		warnings = append(warnings, "[fastsync] table detected. This section has been renamed to [blocksync]. The values in this deprecated section will be disregarded.")
+	}
+	if cfg.BaseConfig.DeprecatedFastSyncMode != nil {
+		warnings = append(warnings, "fast_sync key detected. This key has been renamed to block_sync. The value of this deprecated key will be disregarded.")
+	}
+	if cfg.P2P.UPNP != nil {
+		warnings = append(warnings, "unused and deprecated upnp field detected in P2P config.")
+	}
+	return warnings
 }
 
 //-----------------------------------------------------------------------------
@@ -170,10 +205,15 @@ type BaseConfig struct { //nolint: maligned
 	// A custom human readable name for this node
 	Moniker string `mapstructure:"moniker"`
 
-	// If this node is many blocks behind the tip of the chain, FastSync
+	// If this node is many blocks behind the tip of the chain, Blocksync
 	// allows them to catchup quickly by downloading blocks in parallel
 	// and verifying their commits
-	FastSyncMode bool `mapstructure:"fast_sync"`
+	// Deprecated: BlockSync will be enabled unconditionally in the next major release.
+	BlockSyncMode bool `mapstructure:"block_sync"`
+
+	// TODO(williambanfield): remove this field once v0.37 is released.
+	// https://github.com/tendermint/tendermint/issues/9279
+	DeprecatedFastSyncMode interface{} `mapstructure:"fast_sync"`
 
 	// Database backend: goleveldb | cleveldb | boltdb | rocksdb
 	// * goleveldb (github.com/syndtr/goleveldb - most popular implementation)
@@ -241,7 +281,7 @@ func DefaultBaseConfig() BaseConfig {
 		ABCI:               "socket",
 		LogLevel:           DefaultLogLevel,
 		LogFormat:          LogFormatPlain,
-		FastSyncMode:       true,
+		BlockSyncMode:      true,
 		FilterPeers:        false,
 		DBBackend:          "goleveldb",
 		DBPath:             "data",
@@ -253,7 +293,7 @@ func TestBaseConfig() BaseConfig {
 	cfg := DefaultBaseConfig()
 	cfg.chainID = "cometbft_test"
 	cfg.ProxyApp = "kvstore"
-	cfg.FastSyncMode = false
+	cfg.BlockSyncMode = false
 	cfg.DBBackend = "memdb"
 	return cfg
 }
@@ -373,7 +413,7 @@ type RPCConfig struct {
 	//
 	// Enabling this parameter will cause the WebSocket connection to be closed
 	// instead if it cannot read fast enough, allowing for greater
-	// predictability in subscription behaviour.
+	// predictability in subscription behavior.
 	CloseOnSlowClient bool `mapstructure:"experimental_close_on_slow_client"`
 
 	// How long to wait for a tx to be committed during /broadcast_tx_commit
@@ -530,8 +570,8 @@ type P2PConfig struct { //nolint: maligned
 	// Comma separated list of nodes to keep persistent connections to
 	PersistentPeers string `mapstructure:"persistent_peers"`
 
-	// UPNP port forwarding
-	UPNP bool `mapstructure:"upnp"`
+	// Deprecated and unused.
+	UPNP interface{} `mapstructure:"upnp"`
 
 	// Path to address book
 	AddrBook string `mapstructure:"addr_book_file"`
@@ -597,7 +637,6 @@ func DefaultP2PConfig() *P2PConfig {
 	return &P2PConfig{
 		ListenAddress:                "tcp://0.0.0.0:26656",
 		ExternalAddress:              "",
-		UPNP:                         false,
 		AddrBook:                     defaultAddrBookPath,
 		AddrBookStrict:               true,
 		MaxNumInboundPeers:           40,
@@ -686,8 +725,19 @@ func DefaultFuzzConnConfig() *FuzzConnConfig {
 type MempoolConfig struct {
 	// Mempool version to use:
 	//  1) "v0" - (default) FIFO mempool.
-	//  2) "v1" - prioritized mempool.
+	//  2) "v1" - prioritized mempool (deprecated; will be removed in the next release).
 	Version string `mapstructure:"version"`
+
+	// The type of mempool for this node to use.
+	//
+	//  Possible types:
+	//  - "flood" : concurrent linked list mempool with flooding gossip protocol
+	//  (default)
+	//  - "nop"   : nop-mempool (short for no operation; the ABCI app is
+	//  responsible for storing, disseminating and proposing txs).
+	//  "create_empty_blocks=false" is not supported.
+	Type string `mapstructure:"type"`
+
 	// RootDir is the root directory for all data. This should be configured via
 	// the $CMTHOME env variable or --home cmd flag rather than overriding this
 	// struct field.
@@ -730,12 +780,13 @@ type MempoolConfig struct {
 	MaxBatchBytes int `mapstructure:"max_batch_bytes"`
 	// Experimental parameters to limit gossiping txs to up to the specified number of peers.
 	// This feature is only available for the default mempool (version config set to "v0").
-	// We use two independent upper values for persistent peers and for non-persistent peers.
+	// We use two independent upper values for persistent and non-persistent peers.
 	// Unconditional peers are not affected by this feature.
 	// If we are connected to more than the specified number of persistent peers, only send txs to
-	// the first ExperimentalMaxGossipConnectionsToPersistentPeers of them. If one of those
-	// persistent peers disconnects, activate another persistent peer. Similarly for non-persistent
-	// peers, with an upper limit of ExperimentalMaxGossipConnectionsToNonPersistentPeers.
+	// ExperimentalMaxGossipConnectionsToPersistentPeers of them. If one of those
+	// persistent peers disconnects, activate another persistent peer.
+	// Similarly for non-persistent peers, with an upper limit of
+	// ExperimentalMaxGossipConnectionsToNonPersistentPeers.
 	// If set to 0, the feature is disabled for the corresponding group of peers, that is, the
 	// number of active connections to that group of peers is not bounded.
 	// For non-persistent peers, if enabled, a value of 10 is recommended based on experimental
@@ -749,6 +800,9 @@ type MempoolConfig struct {
 	// Note, if TTLNumBlocks is also defined, a transaction will be removed if it
 	// has existed in the mempool at least TTLNumBlocks number of blocks or if it's
 	// insertion time into the mempool is beyond TTLDuration.
+	//
+	// Deprecated: Only used by priority mempool, which will be removed in the
+	// next major release.
 	TTLDuration time.Duration `mapstructure:"ttl-duration"`
 
 	// TTLNumBlocks, if non-zero, defines the maximum number of blocks a transaction
@@ -757,12 +811,16 @@ type MempoolConfig struct {
 	// Note, if TTLDuration is also defined, a transaction will be removed if it
 	// has existed in the mempool at least TTLNumBlocks number of blocks or if
 	// it's insertion time into the mempool is beyond TTLDuration.
+	//
+	// Deprecated: Only used by priority mempool, which will be removed in the
+	// next major release.
 	TTLNumBlocks int64 `mapstructure:"ttl-num-blocks"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the CometBFT mempool
 func DefaultMempoolConfig() *MempoolConfig {
 	return &MempoolConfig{
+		Type:      MempoolTypeFlood,
 		Version:   MempoolV0,
 		Recheck:   true,
 		Broadcast: true,
@@ -800,6 +858,12 @@ func (cfg *MempoolConfig) WalEnabled() bool {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg *MempoolConfig) ValidateBasic() error {
+	switch cfg.Type {
+	case MempoolTypeFlood, MempoolTypeNop:
+	case "": // allow empty string to be backwards compatible
+	default:
+		return fmt.Errorf("unknown mempool type: %q", cfg.Type)
+	}
 	if cfg.Size < 0 {
 		return errors.New("size can't be negative")
 	}
@@ -856,7 +920,7 @@ func DefaultStateSyncConfig() *StateSyncConfig {
 	}
 }
 
-// TestFastSyncConfig returns a default configuration for the state sync service
+// TestStateSyncConfig returns a default configuration for the state sync service
 func TestStateSyncConfig() *StateSyncConfig {
 	return DefaultStateSyncConfig()
 }
@@ -912,36 +976,34 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 }
 
 //-----------------------------------------------------------------------------
-// FastSyncConfig
+// BlockSyncConfig
 
-// FastSyncConfig defines the configuration for the CometBFT fast sync service
-type FastSyncConfig struct {
+// BlockSyncConfig (formerly known as FastSync) defines the configuration for the CometBFT block sync service
+type BlockSyncConfig struct {
 	Version string `mapstructure:"version"`
 }
 
-// DefaultFastSyncConfig returns a default configuration for the fast sync service
-func DefaultFastSyncConfig() *FastSyncConfig {
-	return &FastSyncConfig{
+// DefaultBlockSyncConfig returns a default configuration for the block sync service
+func DefaultBlockSyncConfig() *BlockSyncConfig {
+	return &BlockSyncConfig{
 		Version: "v0",
 	}
 }
 
-// TestFastSyncConfig returns a default configuration for the fast sync.
-func TestFastSyncConfig() *FastSyncConfig {
-	return DefaultFastSyncConfig()
+// TestBlockSyncConfig returns a default configuration for the block sync.
+func TestBlockSyncConfig() *BlockSyncConfig {
+	return DefaultBlockSyncConfig()
 }
 
 // ValidateBasic performs basic validation.
-func (cfg *FastSyncConfig) ValidateBasic() error {
+func (cfg *BlockSyncConfig) ValidateBasic() error {
 	switch cfg.Version {
 	case "v0":
 		return nil
-	case "v1":
-		return nil
-	case "v2":
-		return nil
+	case "v1", "v2":
+		return fmt.Errorf("blocksync version %s has been deprecated. Please use v0 instead", cfg.Version)
 	default:
-		return fmt.Errorf("unknown fastsync version %s", cfg.Version)
+		return fmt.Errorf("unknown blocksync version %s", cfg.Version)
 	}
 }
 

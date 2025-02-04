@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/assert"
 
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 func TestMarshalJSON(t *testing.T) {
@@ -25,7 +25,7 @@ func TestMarshalJSON(t *testing.T) {
 			{
 				Type: "testEvent",
 				Attributes: []EventAttribute{
-					{Key: []byte("pho"), Value: []byte("bo")},
+					{Key: "pho", Value: "bo"},
 				},
 			},
 		},
@@ -92,7 +92,7 @@ func TestWriteReadMessage2(t *testing.T) {
 				{
 					Type: "testEvent",
 					Attributes: []EventAttribute{
-						{Key: []byte("abc"), Value: []byte("def")},
+						{Key: "abc", Value: "def"},
 					},
 				},
 			},

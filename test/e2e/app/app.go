@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
-	"github.com/tendermint/tendermint/abci/example/code"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/version"
+	"github.com/cometbft/cometbft/abci/example/code"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/log"
+	cmttypes "github.com/cometbft/cometbft/types"
+	"github.com/cometbft/cometbft/version"
 )
 
 const appVersion = 1
@@ -70,6 +72,13 @@ type Config struct {
 	//
 	// height <-> pubkey <-> voting power
 	ValidatorUpdates map[string]map[string]uint8 `toml:"validator_update"`
+
+	// Add artificial delays to each of the main ABCI calls to mimic computation time
+	// of the application
+	PrepareProposalDelay time.Duration `toml:"prepare_proposal_delay"`
+	ProcessProposalDelay time.Duration `toml:"process_proposal_delay"`
+	CheckTxDelay         time.Duration `toml:"check_tx_delay"`
+	// TODO: add vote extension and finalize block delays once completed (@cmwaters)
 }
 
 func DefaultConfig(dir string) *Config {
@@ -136,6 +145,11 @@ func (app *Application) CheckTx(req abci.RequestCheckTx) abci.ResponseCheckTx {
 			Log:  err.Error(),
 		}
 	}
+
+	if app.cfg.CheckTxDelay != 0 {
+		time.Sleep(app.cfg.CheckTxDelay)
+	}
+
 	return abci.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}
 }
 
@@ -147,6 +161,19 @@ func (app *Application) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDelive
 	}
 	app.state.Set(key, value)
 	return abci.ResponseDeliverTx{Code: code.CodeTypeOK}
+}
+
+func (app *Application) BeginBlock(req abci.RequestBeginBlock) abci.ResponseBeginBlock {
+	for _, ev := range req.ByzantineValidators {
+		app.logger.Info("Misbehavior. Slashing validator",
+			"validator_address", ev.GetValidator().Address,
+			"type", ev.GetType(),
+			"height", ev.GetHeight(),
+			"time", ev.GetTime(),
+			"total_voting_power", ev.GetTotalVotingPower(),
+		)
+	}
+	return abci.ResponseBeginBlock{}
 }
 
 // EndBlock implements ABCI.
@@ -163,12 +190,12 @@ func (app *Application) EndBlock(req abci.RequestEndBlock) abci.ResponseEndBlock
 				Type: "val_updates",
 				Attributes: []abci.EventAttribute{
 					{
-						Key:   []byte("size"),
-						Value: []byte(strconv.Itoa(valUpdates.Len())),
+						Key:   "size",
+						Value: strconv.Itoa(valUpdates.Len()),
 					},
 					{
-						Key:   []byte("height"),
-						Value: []byte(strconv.Itoa(int(req.Height))),
+						Key:   "height",
+						Value: strconv.Itoa(int(req.Height)),
 					},
 				},
 			},
@@ -255,6 +282,43 @@ func (app *Application) ApplySnapshotChunk(req abci.RequestApplySnapshotChunk) a
 		app.restoreChunks = nil
 	}
 	return abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}
+}
+
+func (app *Application) PrepareProposal(
+	req abci.RequestPrepareProposal) abci.ResponsePrepareProposal {
+	txs := make([][]byte, 0, len(req.Txs))
+	var totalBytes int64
+	for _, tx := range req.Txs {
+		txLen := cmttypes.ComputeProtoSizeForTxs([]cmttypes.Tx{tx})
+		if totalBytes+txLen > req.MaxTxBytes {
+			break
+		}
+		totalBytes += txLen
+		txs = append(txs, tx)
+	}
+
+	if app.cfg.PrepareProposalDelay != 0 {
+		time.Sleep(app.cfg.PrepareProposalDelay)
+	}
+
+	return abci.ResponsePrepareProposal{Txs: txs}
+}
+
+// ProcessProposal implements part of the Application interface.
+// It accepts any proposal that does not contain a malformed transaction.
+func (app *Application) ProcessProposal(req abci.RequestProcessProposal) abci.ResponseProcessProposal {
+	for _, tx := range req.Txs {
+		_, _, err := parseTx(tx)
+		if err != nil {
+			return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}
+		}
+	}
+
+	if app.cfg.ProcessProposalDelay != 0 {
+		time.Sleep(app.cfg.ProcessProposalDelay)
+	}
+
+	return abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}
 }
 
 func (app *Application) Rollback() error {
