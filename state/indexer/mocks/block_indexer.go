@@ -5,6 +5,8 @@ package mocks
 import (
 	context "context"
 
+	log "github.com/cometbft/cometbft/libs/log"
+
 	mock "github.com/stretchr/testify/mock"
 
 	query "github.com/cometbft/cometbft/libs/pubsub/query"
@@ -46,7 +48,7 @@ func (_m *BlockIndexer) Has(height int64) (bool, error) {
 }
 
 // Index provides a mock function with given fields: _a0
-func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockHeader) error {
+func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockEvents) error {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
@@ -54,7 +56,7 @@ func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockHeader) error {
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(types.EventDataNewBlockHeader) error); ok {
+	if rf, ok := ret.Get(0).(func(types.EventDataNewBlockEvents) error); ok {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Error(0)
@@ -91,6 +93,11 @@ func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query) ([]int64, er
 	}
 
 	return r0, r1
+}
+
+// SetLogger provides a mock function with given fields: l
+func (_m *BlockIndexer) SetLogger(l log.Logger) {
+	_m.Called(l)
 }
 
 // NewBlockIndexer creates a new instance of BlockIndexer. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

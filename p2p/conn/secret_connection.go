@@ -14,7 +14,7 @@ import (
 	"time"
 
 	gogotypes "github.com/cosmos/gogoproto/types"
-	"github.com/gtank/merlin"
+	"github.com/oasisprotocol/curve25519-voi/primitives/merlin"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/hkdf"
@@ -37,15 +37,15 @@ const (
 	aeadSizeOverhead = 16 // overhead of poly 1305 authentication tag
 	aeadKeySize      = chacha20poly1305.KeySize
 	aeadNonceSize    = chacha20poly1305.NonceSize
+
+	labelEphemeralLowerPublicKey = "EPHEMERAL_LOWER_PUBLIC_KEY"
+	labelEphemeralUpperPublicKey = "EPHEMERAL_UPPER_PUBLIC_KEY"
+	labelDHSecret                = "DH_SECRET"
+	labelSecretConnectionMac     = "SECRET_CONNECTION_MAC"
 )
 
 var (
 	ErrSmallOrderRemotePubKey = errors.New("detected low order point from remote peer")
-
-	labelEphemeralLowerPublicKey = []byte("EPHEMERAL_LOWER_PUBLIC_KEY")
-	labelEphemeralUpperPublicKey = []byte("EPHEMERAL_UPPER_PUBLIC_KEY")
-	labelDHSecret                = []byte("DH_SECRET")
-	labelSecretConnectionMac     = []byte("SECRET_CONNECTION_MAC")
 
 	secretConnKeyAndChallengeGen = []byte("TENDERMINT_SECRET_CONNECTION_KEY_AND_CHALLENGE_GEN")
 )
@@ -135,9 +135,7 @@ func MakeSecretConnection(conn io.ReadWriteCloser, locPrivKey crypto.PrivKey) (*
 
 	const challengeSize = 32
 	var challenge [challengeSize]byte
-	challengeSlice := transcript.ExtractBytes(labelSecretConnectionMac, challengeSize)
-
-	copy(challenge[:], challengeSlice[0:challengeSize])
+	transcript.ExtractBytes(challenge[:], labelSecretConnectionMac)
 
 	sendAead, err := chacha20poly1305.New(sendSecret[:])
 	if err != nil {
@@ -239,14 +237,14 @@ func (sc *SecretConnection) Read(data []byte) (n int, err error) {
 	if 0 < len(sc.recvBuffer) {
 		n = copy(data, sc.recvBuffer)
 		sc.recvBuffer = sc.recvBuffer[n:]
-		return
+		return n, err
 	}
 
 	// read off the conn
 	sealedFrame := sc.recvSealedFrame
 	_, err = io.ReadFull(sc.conn, sealedFrame)
 	if err != nil {
-		return
+		return n, err
 	}
 
 	// decrypt the frame.
@@ -326,7 +324,7 @@ func shareEphPubKey(conn io.ReadWriter, locEphPub *[32]byte) (remEphPub *[32]byt
 	// If error:
 	if trs.FirstError() != nil {
 		err = trs.FirstError()
-		return
+		return remEphPub, err
 	}
 
 	// Otherwise:
@@ -439,7 +437,7 @@ func shareAuthSignature(sc io.ReadWriter, pubKey crypto.PubKey, signature []byte
 	// If error:
 	if trs.FirstError() != nil {
 		err = trs.FirstError()
-		return
+		return recvMsg, err
 	}
 
 	var _recvMsg = trs.FirstValue().(authSigMessage)

@@ -26,6 +26,10 @@ like the file below, however, double check by inspecting the
 # "$HOME/.cometbft" by default, but could be changed via $CMTHOME env variable
 # or --home cmd flag.
 
+# The version of the CometBFT binary that created or
+# last modified the config file. Do not modify this.
+version = "0.38.0"
+
 #######################################################################
 ###                   Main Base Config Options                      ###
 #######################################################################
@@ -37,16 +41,10 @@ proxy_app = "tcp://127.0.0.1:26658"
 # A custom human readable name for this node
 moniker = "anonymous"
 
-# If this node is many blocks behind the tip of the chain, BlockSync
-# allows them to catchup quickly by downloading blocks in parallel
-# and verifying their commits
-#
-# Deprecated: this key will be removed and BlockSync will be enabled 
-# unconditionally in the next major release.
-block_sync = true
-
 # Database backend: goleveldb | cleveldb | boltdb | rocksdb | badgerdb
-# * goleveldb (github.com/syndtr/goleveldb - most popular implementation)
+# * goleveldb (github.com/syndtr/goleveldb)
+#   - UNMAINTAINED
+#   - stable
 #   - pure go
 #   - stable
 # * cleveldb (uses levigo wrapper)
@@ -192,6 +190,16 @@ experimental_close_on_slow_client = false
 # See https://github.com/tendermint/tendermint/issues/3435
 timeout_broadcast_tx_commit = "10s"
 
+# Maximum number of requests that can be sent in a JSON-RPC batch request.
+# Possible values: number greater than 0.
+# If the number of requests sent in a JSON-RPC batch exceed the maximum batch
+# size configured, an error will be returned.
+# The default value is set to `10`, which will limit the number of requests
+# to 10 requests per a JSON-RPC batch request.
+# If you don't want to enforce a maximum number of requests for a batch
+# request set this value to `0`.
+max_request_batch_size = 10
+
 # Maximum size of request body, in bytes
 max_body_bytes = 1000000
 
@@ -290,11 +298,6 @@ dial_timeout = "3s"
 #######################################################
 [mempool]
 
-# Mempool version to use:
-#   1) "v0" - (default) FIFO mempool.
-#   2) "v1" - prioritized mempool (deprecated; will be removed in the next release).
-version = "v0"
-
 # The type of mempool for this node to use.
 #
 #  Possible types:
@@ -305,8 +308,24 @@ version = "v0"
 #  not supported.
 type = "flood"
 
+# Recheck (default: true) defines whether CometBFT should recheck the
+# validity for all remaining transaction in the mempool after a block.
+# Since a block affects the application state, some transactions in the
+# mempool may become invalid. If this does not apply to your application,
+# you can disable rechecking.
 recheck = true
+
+# Broadcast (default: true) defines whether the mempool should relay
+# transactions to other peers. Setting this to false will stop the mempool
+# from relaying transactions to other peers until they are included in a
+# block. In other words, if Broadcast is disabled, only the peer you send
+# the tx to will see it until it is included in a block.
 broadcast = true
+
+# WalPath (default: "") configures the location of the Write Ahead Log
+# (WAL) for the mempool. The WAL is disabled by default. To enable, set
+# wal_dir to where you want the WAL to be written (e.g.
+# "data/mempool.wal").
 wal_dir = ""
 
 # Maximum number of transactions in the mempool
@@ -333,22 +352,6 @@ max_tx_bytes = 1048576
 # Including space needed by encoding (one varint per transaction).
 # XXX: Unused due to https://github.com/tendermint/tendermint/issues/5796
 max_batch_bytes = 0
-
-# ttl-duration, if non-zero, defines the maximum amount of time a transaction
-# can exist for in the mempool.
-#
-# Note, if ttl-num-blocks is also defined, a transaction will be removed if it
-# has existed in the mempool at least ttl-num-blocks number of blocks or if it's
-# insertion time into the mempool is beyond ttl-duration.
-ttl-duration = "0s"
-
-# ttl-num-blocks, if non-zero, defines the maximum number of blocks a transaction
-# can exist for in the mempool.
-#
-# Note, if ttl-duration is also defined, a transaction will be removed if it
-# has existed in the mempool at least ttl-num-blocks number of blocks or if
-# it's insertion time into the mempool is beyond ttl-duration.
-ttl-num-blocks = 0
 
 #######################################################
 ###         State Sync Configuration Options        ###
@@ -392,7 +395,7 @@ chunk_fetchers = "4"
 [blocksync]
 
 # Block Sync version to use:
-# 
+#
 # In v0.37, v1 and v2 of the block sync protocols were deprecated.
 # Please use v0 instead.
 #
@@ -510,8 +513,6 @@ Note after the block H, CometBFT creates something we call a "proof block" (only
 
 Plus, if you set `create_empty_blocks_interval` to something other than the default (`0`), CometBFT will be creating empty blocks even in the absence of transactions every `create_empty_blocks_interval.` For instance, with `create_empty_blocks = false` and `create_empty_blocks_interval = "30s"`, CometBFT will only create blocks if there are transactions, or after waiting 30 seconds without receiving any transactions.
 
-Plus, if you set `create_empty_blocks_interval` to something other than the default (`0`), CometBFT will be creating empty blocks even in the absence of transactions every `create_empty_blocks_interval.` For instance, with `create_empty_blocks = false` and `create_empty_blocks_interval = "30s"`, CometBFT will only create blocks if there are transactions, or after waiting 30 seconds without receiving any transactions.
-
 ## Consensus timeouts explained
 There's a variety of information about timeouts in [Running in
 production](./running-in-production.md#configuration-parameters).
@@ -547,3 +548,71 @@ Here's a brief summary of the timeouts:
   on the new height (this gives us a chance to receive some more precommits,
   even though we already have +2/3)
 
+### The adverse effect of using inconsistent `timeout_propose` in a network
+
+Here's an interesting question. What happens if a particular validator sets a
+very small `timeout_propose`, as compared to the rest of the network?
+
+Imagine there are only two validators in your network: Alice and Bob. Bob sets
+`timeout_propose` to 0s. Alice uses the default value of 3s. Let's say they
+both have an equal voting power. Given the proposer selection algorithm is a
+weighted round-robin, you may expect Alice and Bob to take turns proposing
+blocks, and the result like:
+
+```
+#1 block - Alice
+#2 block - Bob
+#3 block - Alice
+#4 block - Bob
+...
+```
+
+What happens in reality is, however, a little bit different:
+
+```
+#1 block - Bob
+#2 block - Bob
+#3 block - Bob
+#4 block - Bob
+```
+
+That's because Bob doesn't wait for a proposal from Alice (prevotes `nil`).
+This leaves Alice no chances to commit a block. Note that every block Bob
+creates needs a vote from Alice to constitute 2/3+. Bob always gets one because
+Alice has `timeout_propose` set to 3s. Alice never gets one because Bob has it
+set to 0s.
+
+Imagine now there are ten geographically distributed validators. One of them
+(Bob) sets `timeout_propose` to 0s. Others have it set to 3s. Now, Bob won't be
+able to move with his own speed because it still needs 2/3 votes of the other
+validators and it takes time to propagate those. I.e., the network moves with
+the speed of time to accumulate 2/3+ of votes (prevotes & precommits), not with
+the speed of the fastest proposer.
+
+> Isn't block production determined by voting power?
+
+If it were determined solely by voting power, it wouldn't be possible to ensure
+liveness. Timeouts exist because the network can't rely on a single proposer
+being available and must move on if such is not responding.
+
+> How can we address situations where someone arbitrarily adjusts their block
+> production time to gain an advantage?
+
+The impact shown above is negligible in a decentralized network with enough
+decentralization.
+
+### The adverse effect of using inconsistent `timeout_commit` in a network
+
+Let's look at the same scenario as before. There are ten geographically
+distributed validators. One of them (Bob) sets `timeout_commit` to 0s. Others
+have it set to 1s (the default value). Now, Bob will be the fastest producer
+because he doesn't wait for additional precommits after creating a block. If
+waiting for precommits (`timeout_commit`) is not incentivized, Bob will accrue
+more rewards compared to the other 9 validators.
+
+This is because Bob has the advantage of broadcasting its proposal early (1
+second earlier than the others). But it also makes it possible for Bob to miss
+a proposal from another validator and prevote `nil` due to him starting
+`timeout_propose` earlier. I.e., if Bob's `timeout_commit` is too low comparing
+to other validators, then he might miss some proposals and get slashed for
+inactivity.

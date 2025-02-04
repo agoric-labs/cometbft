@@ -79,7 +79,7 @@ func TestPEXReactorRunning(t *testing.T) {
 
 	// create switches
 	for i := 0; i < N; i++ {
-		switches[i] = p2p.MakeSwitch(cfg, i, "testing", "123.123.123", func(i int, sw *p2p.Switch) *p2p.Switch {
+		switches[i] = p2p.MakeSwitch(cfg, i, func(i int, sw *p2p.Switch) *p2p.Switch {
 			books[i] = NewAddrBook(filepath.Join(dir, fmt.Sprintf("addrbook%d.json", i)), false)
 			books[i].SetLogger(logger.With("pex", i))
 			sw.SetAddrBook(books[i])
@@ -130,10 +130,10 @@ func TestPEXReactorReceiveEnvelope(t *testing.T) {
 
 	size := book.Size()
 	msg := &tmp2p.PexAddrs{Addrs: []tmp2p.NetAddress{peer.SocketAddr().ToProto()}}
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: msg})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: msg})
 	assert.Equal(t, size+1, book.Size())
 
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
 }
 
 func TestPEXReactorRequestMessageAbuse(t *testing.T) {
@@ -154,17 +154,17 @@ func TestPEXReactorRequestMessageAbuse(t *testing.T) {
 	id := string(peer.ID())
 
 	// first time creates the entry
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
 	assert.True(t, r.lastReceivedRequests.Has(id))
 	assert.True(t, sw.Peers().Has(peer.ID()))
 
 	// next time sets the last time value
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
 	assert.True(t, r.lastReceivedRequests.Has(id))
 	assert.True(t, sw.Peers().Has(peer.ID()))
 
 	// third time is too many too soon - peer is removed
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: &tmp2p.PexRequest{}})
 	assert.False(t, r.lastReceivedRequests.Has(id))
 	assert.False(t, sw.Peers().Has(peer.ID()))
 	assert.True(t, book.IsBanned(peerAddr))
@@ -191,12 +191,12 @@ func TestPEXReactorAddrsMessageAbuse(t *testing.T) {
 	msg := &tmp2p.PexAddrs{Addrs: []tmp2p.NetAddress{peer.SocketAddr().ToProto()}}
 
 	// receive some addrs. should clear the request
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: msg})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: msg})
 	assert.False(t, r.requestsSent.Has(id))
 	assert.True(t, sw.Peers().Has(peer.ID()))
 
 	// receiving more unsolicited addrs causes a disconnect and ban
-	r.ReceiveEnvelope(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: msg})
+	r.Receive(p2p.Envelope{ChannelID: PexChannel, Src: peer, Message: msg})
 	assert.False(t, sw.Peers().Has(peer.ID()))
 	assert.True(t, book.IsBanned(peer.SocketAddr()))
 }
@@ -270,14 +270,11 @@ func TestConnectionSpeedForPeerReceivedFromSeed(t *testing.T) {
 	require.Nil(t, err)
 	defer os.RemoveAll(dir)
 
-	// Default is 10, we need one connection for the seed node.
-	cfg.MaxNumOutboundPeers = 2
-
 	var id int
 	var knownAddrs []*p2p.NetAddress
 
 	// 1. Create some peers
-	for id = 0; id < cfg.MaxNumOutboundPeers+1; id++ {
+	for id = 0; id < 3; id++ {
 		peer := testCreateDefaultPeer(dir, id)
 		require.NoError(t, peer.Start())
 		addr := peer.NetAddress()
@@ -304,14 +301,14 @@ func TestConnectionSpeedForPeerReceivedFromSeed(t *testing.T) {
 	assertPeersWithTimeout(t, []*p2p.Switch{node}, 10*time.Millisecond, 3*time.Second, 1)
 
 	// 5. Check that the node connects to the peers reported by the seed node
-	assertPeersWithTimeout(t, []*p2p.Switch{node}, 10*time.Millisecond, 1*time.Second, cfg.MaxNumOutboundPeers)
+	assertPeersWithTimeout(t, []*p2p.Switch{node}, 10*time.Millisecond, 1*time.Second, 2)
 
 	// 6. Assert that the configured maximum number of inbound/outbound peers
 	// are respected, see https://github.com/cometbft/cometbft/issues/486
 	outbound, inbound, dialing := node.NumPeers()
 	assert.LessOrEqual(t, inbound, cfg.MaxNumInboundPeers)
 	assert.LessOrEqual(t, outbound, cfg.MaxNumOutboundPeers)
-	assert.Zero(t, dialing)
+	assert.LessOrEqual(t, dialing, cfg.MaxNumOutboundPeers+cfg.MaxNumInboundPeers-outbound-inbound)
 }
 
 func TestPEXReactorSeedMode(t *testing.T) {
@@ -438,7 +435,7 @@ func TestPEXReactorSeedModeFlushStop(t *testing.T) {
 
 	// create switches
 	for i := 0; i < N; i++ {
-		switches[i] = p2p.MakeSwitch(cfg, i, "testing", "123.123.123", func(i int, sw *p2p.Switch) *p2p.Switch {
+		switches[i] = p2p.MakeSwitch(cfg, i, func(i int, sw *p2p.Switch) *p2p.Switch {
 			books[i] = NewAddrBook(filepath.Join(dir, fmt.Sprintf("addrbook%d.json", i)), false)
 			books[i].SetLogger(logger.With("pex", i))
 			sw.SetAddrBook(books[i])
@@ -508,7 +505,7 @@ func TestPEXReactorDoesNotAddPrivatePeersToAddrBook(t *testing.T) {
 
 	size := book.Size()
 	msg := &tmp2p.PexAddrs{Addrs: []tmp2p.NetAddress{peer.SocketAddr().ToProto()}}
-	pexR.ReceiveEnvelope(p2p.Envelope{
+	pexR.Receive(p2p.Envelope{
 		ChannelID: PexChannel,
 		Src:       peer,
 		Message:   msg,
@@ -579,8 +576,9 @@ func assertPeersWithTimeout(
 ) {
 	var (
 		ticker    = time.NewTicker(checkPeriod)
-		remaining = timeout
+		timeoutCh = time.After(timeout)
 	)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -594,14 +592,10 @@ func assertPeersWithTimeout(
 					break
 				}
 			}
-			remaining -= checkPeriod
-			if remaining < 0 {
-				remaining = 0
-			}
 			if allGood {
 				return
 			}
-		case <-time.After(remaining):
+		case <-timeoutCh:
 			numPeersStr := ""
 			for i, s := range switches {
 				outbound, inbound, _ := s.NumPeers()
@@ -621,8 +615,6 @@ func testCreatePeerWithConfig(dir string, id int, config *ReactorConfig) *p2p.Sw
 	peer := p2p.MakeSwitch(
 		cfg,
 		id,
-		"127.0.0.1",
-		"123.123.123",
 		func(i int, sw *p2p.Switch) *p2p.Switch {
 			book := NewAddrBook(filepath.Join(dir, fmt.Sprintf("addrbook%d.json", id)), false)
 			book.SetLogger(log.TestingLogger().With("book", id))
@@ -651,8 +643,6 @@ func testCreateSeed(dir string, id int, knownAddrs, srcAddrs []*p2p.NetAddress) 
 	seed := p2p.MakeSwitch(
 		cfg,
 		id,
-		"127.0.0.1",
-		"123.123.123",
 		func(i int, sw *p2p.Switch) *p2p.Switch {
 			book := NewAddrBook(filepath.Join(dir, "addrbookSeed.json"), false)
 			book.SetLogger(log.TestingLogger())
@@ -705,7 +695,7 @@ func teardownReactor(book AddrBook) {
 }
 
 func createSwitchAndAddReactors(reactors ...p2p.Reactor) *p2p.Switch {
-	sw := p2p.MakeSwitch(cfg, 0, "127.0.0.1", "123.123.123", func(i int, sw *p2p.Switch) *p2p.Switch { return sw })
+	sw := p2p.MakeSwitch(cfg, 0, func(i int, sw *p2p.Switch) *p2p.Switch { return sw })
 	sw.SetLogger(log.TestingLogger())
 	for _, r := range reactors {
 		sw.AddReactor(r.String(), r)

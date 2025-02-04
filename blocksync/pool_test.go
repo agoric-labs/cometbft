@@ -49,6 +49,9 @@ func (p testPeer) runInputRoutine() {
 // Request desired, pretend like we got the block immediately.
 func (p testPeer) simulateInput(input inputData) {
 	block := &types.Block{Header: types.Header{Height: input.request.Height}, LastCommit: &types.Commit{}} // real blocks have LastCommit
+	extCommit := &types.ExtendedCommit{
+		Height: input.request.Height,
+	}
 	// If this peer is malicious
 	if p.malicious {
 		realHeight := p.height - MaliciousLie
@@ -63,7 +66,8 @@ func (p testPeer) simulateInput(input inputData) {
 			}
 		}
 	}
-	input.pool.AddBlock(input.request.PeerID, block, 123)
+	err := input.pool.AddBlock(input.request.PeerID, block, extCommit, 123)
+	require.NoError(input.t, err)
 	// TODO: uncommenting this creates a race which is detected by:
 	// https://github.com/golang/go/blob/2bd767b1022dd3254bcec469f0ee164024726486/src/testing/testing.go#L854-L856
 	// see: https://github.com/tendermint/tendermint/issues/3390#issue-418379890
@@ -135,7 +139,7 @@ func TestBlockPoolBasic(t *testing.T) {
 			if !pool.IsRunning() {
 				return
 			}
-			first, second := pool.PeekTwoBlocks()
+			first, second, _ := pool.PeekTwoBlocks()
 			if first != nil && second != nil {
 				pool.PopRequest()
 			} else {
@@ -197,7 +201,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 			if !pool.IsRunning() {
 				return
 			}
-			first, second := pool.PeekTwoBlocks()
+			first, second, _ := pool.PeekTwoBlocks()
 			if first != nil && second != nil {
 				pool.PopRequest()
 			} else {
@@ -316,29 +320,39 @@ func TestBlockPoolMaliciousNode(t *testing.T) {
 		for _, peer := range peers {
 			pool.SetPeerRange(peer.id, peer.base, peer.height)
 		}
+
+		ticker := time.NewTicker(1 * time.Second) // Speed of new block creation
+		defer ticker.Stop()
 		for {
-			time.Sleep(1 * time.Second) // Speed of new block creation
-			for _, peer := range peers {
-				peer.height += 1                                   // Network height increases on all peers
-				pool.SetPeerRange(peer.id, peer.base, peer.height) // Tell the pool that a new height is available
+			select {
+			case <-pool.Quit():
+				return
+			case <-ticker.C:
+				for _, peer := range peers {
+					peer.height++                                      // Network height increases on all peers
+					pool.SetPeerRange(peer.id, peer.base, peer.height) // Tell the pool that a new height is available
+				}
 			}
 		}
 	}()
 
 	// Start a goroutine to verify blocks
 	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond) // Speed of new block creation
+		defer ticker.Stop()
 		for {
-			time.Sleep(500 * time.Millisecond) // Speed of block verification
-			if !pool.IsRunning() {
+			select {
+			case <-pool.Quit():
 				return
-			}
-			first, second := pool.PeekTwoBlocks()
-			if first != nil && second != nil {
-				if second.LastCommit == nil {
-					// Second block is fake
-					pool.RemovePeerAndRedoAllPeerRequests(second.Height)
-				} else {
-					pool.PopRequest()
+			case <-ticker.C:
+				first, second, _ := pool.PeekTwoBlocks()
+				if first != nil && second != nil {
+					if second.LastCommit == nil {
+						// Second block is fake
+						pool.RemovePeerAndRedoAllPeerRequests(second.Height)
+					} else {
+						pool.PopRequest()
+					}
 				}
 			}
 		}
@@ -359,9 +373,7 @@ func TestBlockPoolMaliciousNode(t *testing.T) {
 			// Process request
 			peers[request.PeerID].inputChan <- inputData{t, pool, request}
 		case <-testTicker.C:
-			pool.mtx.Lock()
-			banned := pool.isPeerBanned("bad")
-			pool.mtx.Unlock()
+			banned := pool.IsPeerBanned("bad")
 			bannedOnce = bannedOnce || banned // Keep bannedOnce true, even if the malicious peer gets unbanned
 			caughtUp := pool.IsCaughtUp()
 			// Success: pool caught up and malicious peer was banned at least once
@@ -448,7 +460,7 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 			case <-pool.Quit():
 				return
 			case <-ticker.C:
-				first, second := pool.PeekTwoBlocks()
+				first, second, _ := pool.PeekTwoBlocks()
 				if first != nil && second != nil {
 					if second.LastCommit == nil {
 						// Second block is fake
@@ -480,9 +492,7 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 			// Process request
 			peers[request.PeerID].inputChan <- inputData{t, pool, request}
 		case <-testTicker.C:
-			pool.mtx.Lock()
-			banned := pool.isPeerBanned("bad")
-			pool.mtx.Unlock()
+			banned := pool.IsPeerBanned("bad")
 			bannedOnce = bannedOnce || banned // Keep bannedOnce true, even if the malicious peer gets unbanned
 			caughtUp := pool.IsCaughtUp()
 			// Success: pool caught up and malicious peer was banned at least once

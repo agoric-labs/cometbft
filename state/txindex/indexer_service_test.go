@@ -44,9 +44,21 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		}
 	})
 
-	// publish block with txs
-	err = eventBus.PublishEventNewBlockHeader(types.EventDataNewBlockHeader{
-		Header: types.Header{Height: 1},
+	// publish block with events
+	err = eventBus.PublishEventNewBlockEvents(types.EventDataNewBlockEvents{
+		Height: 1,
+		Events: []abci.Event{
+			{
+				Type: "begin_event",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "proposer",
+						Value: "FCAA001",
+						Index: true,
+					},
+				},
+			},
+		},
 		NumTxs: int64(2),
 	})
 	require.NoError(t, err)
@@ -54,7 +66,7 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		Height: 1,
 		Index:  uint32(0),
 		Tx:     types.Tx("foo"),
-		Result: abci.ResponseDeliverTx{Code: 0},
+		Result: abci.ExecTxResult{Code: 0},
 	}
 	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult1})
 	require.NoError(t, err)
@@ -62,7 +74,7 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		Height: 1,
 		Index:  uint32(1),
 		Tx:     types.Tx("bar"),
-		Result: abci.ResponseDeliverTx{Code: 0},
+		Result: abci.ExecTxResult{Code: 0},
 	}
 	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult2})
 	require.NoError(t, err)

@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
+
+	"github.com/cometbft/cometbft/version"
 )
 
 const (
@@ -24,10 +27,18 @@ const (
 	// DefaultLogLevel defines a default log level as INFO.
 	DefaultLogLevel = "info"
 
-	// Mempool versions. V1 is prioritized mempool (deprecated), v0 is regular mempool.
-	// Default is v0.
-	MempoolV0 = "v0"
-	MempoolV1 = "v1"
+	DefaultTendermintDir = ".cometbft"
+	DefaultConfigDir     = "config"
+	DefaultDataDir       = "data"
+
+	DefaultConfigFileName  = "config.toml"
+	DefaultGenesisJSONName = "genesis.json"
+
+	DefaultPrivValKeyName   = "priv_validator_key.json"
+	DefaultPrivValStateName = "priv_validator_state.json"
+
+	DefaultNodeKeyName  = "node_key.json"
+	DefaultAddrBookName = "addrbook.json"
 
 	MempoolTypeFlood = "flood"
 	MempoolTypeNop   = "nop"
@@ -40,29 +51,19 @@ const (
 // config/toml.go
 // NOTE: libs/cli must know to look in the config dir!
 var (
-	DefaultTendermintDir = ".cometbft"
-	defaultConfigDir     = "config"
-	defaultDataDir       = "data"
+	defaultConfigFilePath   = filepath.Join(DefaultConfigDir, DefaultConfigFileName)
+	defaultGenesisJSONPath  = filepath.Join(DefaultConfigDir, DefaultGenesisJSONName)
+	defaultPrivValKeyPath   = filepath.Join(DefaultConfigDir, DefaultPrivValKeyName)
+	defaultPrivValStatePath = filepath.Join(DefaultDataDir, DefaultPrivValStateName)
 
-	defaultConfigFileName  = "config.toml"
-	defaultGenesisJSONName = "genesis.json"
-
-	defaultPrivValKeyName   = "priv_validator_key.json"
-	defaultPrivValStateName = "priv_validator_state.json"
-
-	defaultNodeKeyName  = "node_key.json"
-	defaultAddrBookName = "addrbook.json"
-
-	defaultConfigFilePath   = filepath.Join(defaultConfigDir, defaultConfigFileName)
-	defaultGenesisJSONPath  = filepath.Join(defaultConfigDir, defaultGenesisJSONName)
-	defaultPrivValKeyPath   = filepath.Join(defaultConfigDir, defaultPrivValKeyName)
-	defaultPrivValStatePath = filepath.Join(defaultDataDir, defaultPrivValStateName)
-
-	defaultNodeKeyPath  = filepath.Join(defaultConfigDir, defaultNodeKeyName)
-	defaultAddrBookPath = filepath.Join(defaultConfigDir, defaultAddrBookName)
+	defaultNodeKeyPath  = filepath.Join(DefaultConfigDir, DefaultNodeKeyName)
+	defaultAddrBookPath = filepath.Join(DefaultConfigDir, DefaultAddrBookName)
 
 	minSubscriptionBufferSize     = 100
 	defaultSubscriptionBufferSize = 200
+
+	// taken from https://semver.org/
+	semverRegexp = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 )
 
 // Config defines the top level configuration for a CometBFT node
@@ -71,18 +72,15 @@ type Config struct {
 	BaseConfig `mapstructure:",squash"`
 
 	// Options for services
-	RPC       *RPCConfig       `mapstructure:"rpc"`
-	P2P       *P2PConfig       `mapstructure:"p2p"`
-	Mempool   *MempoolConfig   `mapstructure:"mempool"`
-	StateSync *StateSyncConfig `mapstructure:"statesync"`
-	BlockSync *BlockSyncConfig `mapstructure:"blocksync"`
-	// TODO(williambanfield): remove this field once v0.37 is released.
-	// https://github.com/tendermint/tendermint/issues/9279
-	DeprecatedFastSyncConfig map[interface{}]interface{} `mapstructure:"fastsync"`
-	Consensus                *ConsensusConfig            `mapstructure:"consensus"`
-	Storage                  *StorageConfig              `mapstructure:"storage"`
-	TxIndex                  *TxIndexConfig              `mapstructure:"tx_index"`
-	Instrumentation          *InstrumentationConfig      `mapstructure:"instrumentation"`
+	RPC             *RPCConfig             `mapstructure:"rpc"`
+	P2P             *P2PConfig             `mapstructure:"p2p"`
+	Mempool         *MempoolConfig         `mapstructure:"mempool"`
+	StateSync       *StateSyncConfig       `mapstructure:"statesync"`
+	BlockSync       *BlockSyncConfig       `mapstructure:"blocksync"`
+	Consensus       *ConsensusConfig       `mapstructure:"consensus"`
+	Storage         *StorageConfig         `mapstructure:"storage"`
+	TxIndex         *TxIndexConfig         `mapstructure:"tx_index"`
+	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 }
 
 // DefaultConfig returns a default configuration for a CometBFT node
@@ -160,29 +158,9 @@ func (cfg *Config) ValidateBasic() error {
 	return nil
 }
 
+// CheckDeprecated returns any deprecation warnings. These are printed to the operator on startup
 func (cfg *Config) CheckDeprecated() []string {
 	var warnings []string
-	if cfg.Mempool.Version == MempoolV1 {
-		warnings = append(warnings, "prioritized mempool detected. This version of the mempool will be removed in the next major release.")
-	}
-	if cfg.Mempool.TTLNumBlocks != 0 {
-		warnings = append(warnings, "prioritized mempool key detected. This key, together with this version of the mempool, will be removed in the next major release.")
-	}
-	if cfg.Mempool.TTLDuration != 0 {
-		warnings = append(warnings, "prioritized mempool key detected. This key, together with this version of the mempool, will be removed in the next major release.")
-	}
-	if !cfg.BaseConfig.BlockSyncMode {
-		warnings = append(warnings, "disabled block_sync key detected. BlockSync will be enabled unconditionally in the next major release and this key will be removed.")
-	}
-	if cfg.DeprecatedFastSyncConfig != nil {
-		warnings = append(warnings, "[fastsync] table detected. This section has been renamed to [blocksync]. The values in this deprecated section will be disregarded.")
-	}
-	if cfg.BaseConfig.DeprecatedFastSyncMode != nil {
-		warnings = append(warnings, "fast_sync key detected. This key has been renamed to block_sync. The value of this deprecated key will be disregarded.")
-	}
-	if cfg.P2P.UPNP != nil {
-		warnings = append(warnings, "unused and deprecated upnp field detected in P2P config.")
-	}
 	return warnings
 }
 
@@ -191,8 +169,10 @@ func (cfg *Config) CheckDeprecated() []string {
 
 // BaseConfig defines the base configuration for a CometBFT node
 type BaseConfig struct { //nolint: maligned
-	// chainID is unexposed and immutable but here for convenience
-	chainID string
+
+	// The version of the CometBFT binary that created
+	// or last modified the config file
+	Version string `mapstructure:"version"`
 
 	// The root directory for all data.
 	// This should be set in viper so it can unmarshal into this struct
@@ -204,16 +184,6 @@ type BaseConfig struct { //nolint: maligned
 
 	// A custom human readable name for this node
 	Moniker string `mapstructure:"moniker"`
-
-	// If this node is many blocks behind the tip of the chain, Blocksync
-	// allows them to catchup quickly by downloading blocks in parallel
-	// and verifying their commits
-	// Deprecated: BlockSync will be enabled unconditionally in the next major release.
-	BlockSyncMode bool `mapstructure:"block_sync"`
-
-	// TODO(williambanfield): remove this field once v0.37 is released.
-	// https://github.com/tendermint/tendermint/issues/9279
-	DeprecatedFastSyncMode interface{} `mapstructure:"fast_sync"`
 
 	// Database backend: goleveldb | cleveldb | boltdb | rocksdb
 	// * goleveldb (github.com/syndtr/goleveldb - most popular implementation)
@@ -272,6 +242,7 @@ type BaseConfig struct { //nolint: maligned
 // DefaultBaseConfig returns a default base configuration for a CometBFT node
 func DefaultBaseConfig() BaseConfig {
 	return BaseConfig{
+		Version:            version.TMCoreSemVer,
 		Genesis:            defaultGenesisJSONPath,
 		PrivValidatorKey:   defaultPrivValKeyPath,
 		PrivValidatorState: defaultPrivValStatePath,
@@ -281,25 +252,18 @@ func DefaultBaseConfig() BaseConfig {
 		ABCI:               "socket",
 		LogLevel:           DefaultLogLevel,
 		LogFormat:          LogFormatPlain,
-		BlockSyncMode:      true,
 		FilterPeers:        false,
 		DBBackend:          "goleveldb",
-		DBPath:             "data",
+		DBPath:             DefaultDataDir,
 	}
 }
 
 // TestBaseConfig returns a base configuration for testing a CometBFT node
 func TestBaseConfig() BaseConfig {
 	cfg := DefaultBaseConfig()
-	cfg.chainID = "cometbft_test"
 	cfg.ProxyApp = "kvstore"
-	cfg.BlockSyncMode = false
 	cfg.DBBackend = "memdb"
 	return cfg
-}
-
-func (cfg BaseConfig) ChainID() string {
-	return cfg.chainID
 }
 
 // GenesisFile returns the full path to the genesis.json file
@@ -330,6 +294,12 @@ func (cfg BaseConfig) DBDir() string {
 // ValidateBasic performs basic validation (checking param bounds, etc.) and
 // returns an error if any check fails.
 func (cfg BaseConfig) ValidateBasic() error {
+	// version on old config files aren't set so we can't expect it
+	// always to exist
+	if cfg.Version != "" && !semverRegexp.MatchString(cfg.Version) {
+		return fmt.Errorf("invalid version string: %s", cfg.Version)
+	}
+
 	switch cfg.LogFormat {
 	case LogFormatPlain, LogFormatJSON:
 	default:
@@ -422,6 +392,10 @@ type RPCConfig struct {
 	// See https://github.com/tendermint/tendermint/issues/3435
 	TimeoutBroadcastTxCommit time.Duration `mapstructure:"timeout_broadcast_tx_commit"`
 
+	// Maximum number of requests that can be sent in a batch
+	// https://www.jsonrpc.org/specification#batch
+	MaxRequestBatchSize int `mapstructure:"max_request_batch_size"`
+
 	// Maximum size of request body, in bytes
 	MaxBodyBytes int64 `mapstructure:"max_body_bytes"`
 
@@ -447,6 +421,7 @@ type RPCConfig struct {
 	TLSKeyFile string `mapstructure:"tls_key_file"`
 
 	// pprof listen address (https://golang.org/pkg/net/http/pprof)
+	// FIXME: This should be moved under the instrumentation section
 	PprofListenAddress string `mapstructure:"pprof_laddr"`
 }
 
@@ -469,8 +444,9 @@ func DefaultRPCConfig() *RPCConfig {
 		TimeoutBroadcastTxCommit:  10 * time.Second,
 		WebSocketWriteBufferSize:  defaultSubscriptionBufferSize,
 
-		MaxBodyBytes:   int64(1000000), // 1MB
-		MaxHeaderBytes: 1 << 20,        // same as the net/http default
+		MaxRequestBatchSize: 10,             // maximum requests in a JSON-RPC batch request
+		MaxBodyBytes:        int64(1000000), // 1MB
+		MaxHeaderBytes:      1 << 20,        // same as the net/http default
 
 		TLSCertFile: "",
 		TLSKeyFile:  "",
@@ -516,6 +492,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	if cfg.TimeoutBroadcastTxCommit < 0 {
 		return errors.New("timeout_broadcast_tx_commit can't be negative")
 	}
+	if cfg.MaxRequestBatchSize < 0 {
+		return errors.New("max_request_batch_size can't be negative")
+	}
 	if cfg.MaxBodyBytes < 0 {
 		return errors.New("max_body_bytes can't be negative")
 	}
@@ -530,12 +509,16 @@ func (cfg *RPCConfig) IsCorsEnabled() bool {
 	return len(cfg.CORSAllowedOrigins) != 0
 }
 
+func (cfg *RPCConfig) IsPprofEnabled() bool {
+	return len(cfg.PprofListenAddress) != 0
+}
+
 func (cfg RPCConfig) KeyFile() string {
 	path := cfg.TLSKeyFile
 	if filepath.IsAbs(path) {
 		return path
 	}
-	return rootify(filepath.Join(defaultConfigDir, path), cfg.RootDir)
+	return rootify(filepath.Join(DefaultConfigDir, path), cfg.RootDir)
 }
 
 func (cfg RPCConfig) CertFile() string {
@@ -543,7 +526,7 @@ func (cfg RPCConfig) CertFile() string {
 	if filepath.IsAbs(path) {
 		return path
 	}
-	return rootify(filepath.Join(defaultConfigDir, path), cfg.RootDir)
+	return rootify(filepath.Join(DefaultConfigDir, path), cfg.RootDir)
 }
 
 func (cfg RPCConfig) IsTLSEnabled() bool {
@@ -569,9 +552,6 @@ type P2PConfig struct { //nolint: maligned
 
 	// Comma separated list of nodes to keep persistent connections to
 	PersistentPeers string `mapstructure:"persistent_peers"`
-
-	// Deprecated and unused.
-	UPNP interface{} `mapstructure:"upnp"`
 
 	// Path to address book
 	AddrBook string `mapstructure:"addr_book_file"`
@@ -627,7 +607,7 @@ type P2PConfig struct { //nolint: maligned
 	// Testing params.
 	// Force dial to fail
 	TestDialFail bool `mapstructure:"test_dial_fail"`
-	// FUzz connection
+	// Fuzz connection
 	TestFuzz       bool            `mapstructure:"test_fuzz"`
 	TestFuzzConfig *FuzzConnConfig `mapstructure:"test_fuzz_config"`
 }
@@ -722,12 +702,12 @@ func DefaultFuzzConnConfig() *FuzzConnConfig {
 // MempoolConfig
 
 // MempoolConfig defines the configuration options for the CometBFT mempool
+//
+// Note: Until v0.37 there was a `Version` field to select which implementation
+// of the mempool to use. Two versions used to exist: the current, default
+// implementation (previously called v0), and a prioritized mempool (v1), which
+// was removed (see https://github.com/cometbft/cometbft/issues/260).
 type MempoolConfig struct {
-	// Mempool version to use:
-	//  1) "v0" - (default) FIFO mempool.
-	//  2) "v1" - prioritized mempool (deprecated; will be removed in the next release).
-	Version string `mapstructure:"version"`
-
 	// The type of mempool for this node to use.
 	//
 	//  Possible types:
@@ -737,7 +717,6 @@ type MempoolConfig struct {
 	//  responsible for storing, disseminating and proposing txs).
 	//  "create_empty_blocks=false" is not supported.
 	Type string `mapstructure:"type"`
-
 	// RootDir is the root directory for all data. This should be configured via
 	// the $CMTHOME env variable or --home cmd flag rather than overriding this
 	// struct field.
@@ -748,6 +727,16 @@ type MempoolConfig struct {
 	// mempool may become invalid. If this does not apply to your application,
 	// you can disable rechecking.
 	Recheck bool `mapstructure:"recheck"`
+	// RecheckTimeout is the time the application has during the rechecking process
+	// to return CheckTx responses, once all requests have been sent. Responses that
+	// arrive after the timeout expires are discarded. It only applies to
+	// non-local ABCI clients and when recheck is enabled.
+	//
+	// The ideal value will strongly depend on the application. It could roughly be estimated as the
+	// average size of the mempool multiplied by the average time it takes the application to validate one
+	// transaction. We consider that the ABCI application runs in the same location as the CometBFT binary
+	// so that the recheck duration is not affected by network delays when making requests and receiving responses.
+	RecheckTimeout time.Duration `mapstructure:"recheck_timeout"`
 	// Broadcast (default: true) defines whether the mempool should relay
 	// transactions to other peers. Setting this to false will stop the mempool
 	// from relaying transactions to other peers until they are included in a
@@ -779,7 +768,6 @@ type MempoolConfig struct {
 	// XXX: Unused due to https://github.com/tendermint/tendermint/issues/5796
 	MaxBatchBytes int `mapstructure:"max_batch_bytes"`
 	// Experimental parameters to limit gossiping txs to up to the specified number of peers.
-	// This feature is only available for the default mempool (version config set to "v0").
 	// We use two independent upper values for persistent and non-persistent peers.
 	// Unconditional peers are not affected by this feature.
 	// If we are connected to more than the specified number of persistent peers, only send txs to
@@ -793,38 +781,16 @@ type MempoolConfig struct {
 	// performance results using the default P2P configuration.
 	ExperimentalMaxGossipConnectionsToPersistentPeers    int `mapstructure:"experimental_max_gossip_connections_to_persistent_peers"`
 	ExperimentalMaxGossipConnectionsToNonPersistentPeers int `mapstructure:"experimental_max_gossip_connections_to_non_persistent_peers"`
-
-	// TTLDuration, if non-zero, defines the maximum amount of time a transaction
-	// can exist for in the mempool.
-	//
-	// Note, if TTLNumBlocks is also defined, a transaction will be removed if it
-	// has existed in the mempool at least TTLNumBlocks number of blocks or if it's
-	// insertion time into the mempool is beyond TTLDuration.
-	//
-	// Deprecated: Only used by priority mempool, which will be removed in the
-	// next major release.
-	TTLDuration time.Duration `mapstructure:"ttl-duration"`
-
-	// TTLNumBlocks, if non-zero, defines the maximum number of blocks a transaction
-	// can exist for in the mempool.
-	//
-	// Note, if TTLDuration is also defined, a transaction will be removed if it
-	// has existed in the mempool at least TTLNumBlocks number of blocks or if
-	// it's insertion time into the mempool is beyond TTLDuration.
-	//
-	// Deprecated: Only used by priority mempool, which will be removed in the
-	// next major release.
-	TTLNumBlocks int64 `mapstructure:"ttl-num-blocks"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the CometBFT mempool
 func DefaultMempoolConfig() *MempoolConfig {
 	return &MempoolConfig{
-		Type:      MempoolTypeFlood,
-		Version:   MempoolV0,
-		Recheck:   true,
-		Broadcast: true,
-		WalPath:   "",
+		Type:           MempoolTypeFlood,
+		Recheck:        true,
+		RecheckTimeout: 1000 * time.Millisecond,
+		Broadcast:      true,
+		WalPath:        "",
 		// Each signature verification takes .5ms, Size reduced until we implement
 		// ABCI Recheck
 		Size:        5000,
@@ -833,8 +799,6 @@ func DefaultMempoolConfig() *MempoolConfig {
 		MaxTxBytes:  1024 * 1024, // 1MB
 		ExperimentalMaxGossipConnectionsToNonPersistentPeers: 0,
 		ExperimentalMaxGossipConnectionsToPersistentPeers:    0,
-		TTLDuration:  0 * time.Second,
-		TTLNumBlocks: 0,
 	}
 }
 
@@ -1052,7 +1016,7 @@ type ConsensusConfig struct {
 // DefaultConsensusConfig returns a default configuration for the consensus service
 func DefaultConsensusConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		WalPath:                     filepath.Join(defaultDataDir, "cs.wal", "wal"),
+		WalPath:                     filepath.Join(DefaultDataDir, "cs.wal", "wal"),
 		TimeoutPropose:              3000 * time.Millisecond,
 		TimeoutProposeDelta:         500 * time.Millisecond,
 		TimeoutPrevote:              1000 * time.Millisecond,
@@ -1286,6 +1250,10 @@ func (cfg *InstrumentationConfig) ValidateBasic() error {
 		return errors.New("max_open_connections can't be negative")
 	}
 	return nil
+}
+
+func (cfg *InstrumentationConfig) IsPrometheusEnabled() bool {
+	return cfg.Prometheus && cfg.PrometheusListenAddr != ""
 }
 
 //-----------------------------------------------------------------------------

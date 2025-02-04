@@ -10,11 +10,12 @@
 [![License][license-badge]][license-url]
 [![Sourcegraph][sg-badge]][sg-url]
 
-| Branch  | Tests                                    | Linting                               |
-|---------|------------------------------------------|---------------------------------------|
-| main    | [![Tests][tests-badge]][tests-url]       | [![Lint][lint-badge]][lint-url]       |
-| v0.37.x | [![Tests][tests-badge-v037x]][tests-url] | [![Lint][lint-badge-v037x]][lint-url] |
-| v0.34.x | [![Tests][tests-badge-v034x]][tests-url] | [![Lint][lint-badge-v034x]][lint-url] |
+| Branch  | Tests                                          | Linting                                     |
+|---------|------------------------------------------------|---------------------------------------------|
+| main    | [![Tests][tests-badge]][tests-url]             | [![Lint][lint-badge]][lint-url]             |
+| v0.38.x | [![Tests][tests-badge-v038x]][tests-url-v038x] | [![Lint][lint-badge-v038x]][lint-url-v038x] |
+| v0.37.x | [![Tests][tests-badge-v037x]][tests-url-v037x] | [![Lint][lint-badge-v037x]][lint-url-v037x] |
+| v0.34.x | [![Tests][tests-badge-v034x]][tests-url-v034x] | [![Lint][lint-badge-v034x]][lint-url-v034x] |
 
 CometBFT is a Byzantine Fault Tolerant (BFT) middleware that takes a
 state transition machine - written in any programming language - and securely
@@ -45,7 +46,7 @@ us, in order of preference:
 - [Create a new discussion on
   GitHub](https://github.com/cometbft/cometbft/discussions)
 - Reach out to us via [Telegram](https://t.me/CometBFT)
-- [Join the Cosmos Network Discord](https://discord.gg/cosmosnetwork) and
+- [Join the Cosmos Network Discord](https://discord.gg/interchain) and
   discuss in
   [`#cometbft`](https://discord.com/channels/669268347736686612/1069933855307472906)
 
@@ -61,9 +62,10 @@ looking for, see [our security policy](SECURITY.md).
 
 | CometBFT version | Requirement | Notes             |
 |------------------|-------------|-------------------|
-| v0.34.x          | Go version  | Go 1.22 or higher |
-| v0.37.x          | Go version  | Go 1.22 or higher |
 | main             | Go version  | Go 1.22 or higher |
+| v0.38.x          | Go version  | Go 1.22 or higher |
+| v0.37.x          | Go version  | Go 1.22 or higher |
+| v0.34.x          | Go version  | Go 1.12 or higher |
 
 ### Install
 
@@ -121,9 +123,12 @@ CometBFT up-to-date. Upgrading instructions can be found in
 
 Currently supported versions include:
 
+- v0.38.x: CometBFT v0.38 introduces ABCI 2.0, which implements the entirety of
+  ABCI++
+- v0.37.x: CometBFT v0.37 introduces ABCI 1.0, which is the first major step
+  towards the full ABCI++ implementation in ABCI 2.0
 - v0.34.x: The CometBFT v0.34 series is compatible with the Tendermint Core
   v0.34 series
-- v0.37.x: (release candidate)
 
 ## Resources
 
@@ -145,7 +150,7 @@ Currently supported versions include:
 ### Research
 
 Below are links to the original Tendermint consensus algorithm and relevant
-whitepapers which CosmosBFT will continue to build on.
+whitepapers which CometBFT will continue to build on.
 
 - [The latest gossip on BFT consensus](https://arxiv.org/abs/1807.04938)
 - [Master's Thesis on Tendermint](https://atrium.lib.uoguelph.ca/xmlui/handle/10214/9769)
@@ -171,17 +176,25 @@ maintains [cometbft.com](https://cometbft.com).
 [go-badge]: https://img.shields.io/badge/go-1.22-blue.svg
 [go-url]: https://github.com/moovweb/gvm
 [discord-badge]: https://img.shields.io/discord/669268347736686612.svg
-[discord-url]: https://discord.gg/cosmosnetwork
+[discord-url]: https://discord.gg/interchain
 [license-badge]: https://img.shields.io/github/license/cometbft/cometbft.svg
 [license-url]: https://github.com/cometbft/cometbft/blob/main/LICENSE
 [sg-badge]: https://sourcegraph.com/github.com/cometbft/cometbft/-/badge.svg
 [sg-url]: https://sourcegraph.com/github.com/cometbft/cometbft?badge
 [tests-url]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml
+[tests-url-v038x]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml?query=branch%3Av0.38.x
+[tests-url-v037x]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml?query=branch%3Av0.37.x
+[tests-url-v034x]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml?query=branch%3Av0.34.x
 [tests-badge]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml/badge.svg?branch=main
+[tests-badge-v038x]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml/badge.svg?branch=v0.38.x
 [tests-badge-v037x]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml/badge.svg?branch=v0.37.x
 [tests-badge-v034x]: https://github.com/cometbft/cometbft/actions/workflows/tests.yml/badge.svg?branch=v0.34.x
 [lint-badge]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml/badge.svg?branch=main
 [lint-badge-v034x]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml/badge.svg?branch=v0.34.x
 [lint-badge-v037x]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml/badge.svg?branch=v0.37.x
+[lint-badge-v038x]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml/badge.svg?branch=v0.38.x
 [lint-url]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml
+[lint-url-v034x]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml?query=branch%3Av0.34.x
+[lint-url-v037x]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml?query=branch%3Av0.37.x
+[lint-url-v038x]: https://github.com/cometbft/cometbft/actions/workflows/lint.yml?query=branch%3Av0.38.x
 [tm-core]: https://github.com/tendermint/tendermint
