@@ -1,7 +1,7 @@
 <!-- NB: Ensure that all hyperlinks in this doc are absolute URLs, not relative
 ones, as this doc gets published to the Buf registry and relative URLs will fail
 to resolve. -->
-# CometBFT v0.34.x Protocol Buffers Definitions
+# CometBFT v0.37.x Protocol Buffers Definitions
 
 This is the set of [Protobuf][protobuf] definitions of types used by various
 parts of [CometBFT]:
@@ -44,7 +44,7 @@ branch in the `tendermint/tendermint` Buf repository.
 
 [protobuf]: https://protobuf.dev/
 [CometBFT]: https://github.com/cometbft/cometbft
-[abci]: https://github.com/cometbft/cometbft/tree/v0.34.x/spec/abci
+[abci]: https://github.com/cometbft/cometbft/tree/v0.37.x/spec/abci
 [buf]: https://buf.build/tendermint/tendermint
 [tmcore]: https://github.com/tendermint/tendermint
 [\#1330]: https://github.com/cometbft/cometbft/issues/1330

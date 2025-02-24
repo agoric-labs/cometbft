@@ -10,13 +10,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
-	cmttime "github.com/tendermint/tendermint/types/time"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	"github.com/cometbft/cometbft/crypto/tmhash"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/cometbft/cometbft/types"
+	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
 func TestGenLoadValidator(t *testing.T) {
@@ -168,14 +168,10 @@ func TestSignVote(t *testing.T) {
 	randbytes := cmtrand.Bytes(tmhash.Size)
 	randbytes2 := cmtrand.Bytes(tmhash.Size)
 
-	block1 := types.BlockID{
-		Hash:          randbytes,
-		PartSetHeader: types.PartSetHeader{Total: 5, Hash: randbytes},
-	}
-	block2 := types.BlockID{
-		Hash:          randbytes2,
-		PartSetHeader: types.PartSetHeader{Total: 10, Hash: randbytes2},
-	}
+	block1 := types.BlockID{Hash: randbytes,
+		PartSetHeader: types.PartSetHeader{Total: 5, Hash: randbytes}}
+	block2 := types.BlockID{Hash: randbytes2,
+		PartSetHeader: types.PartSetHeader{Total: 10, Hash: randbytes2}}
 
 	height, round := int64(10), int32(1)
 	voteType := cmtproto.PrevoteType
@@ -225,14 +221,10 @@ func TestSignProposal(t *testing.T) {
 	randbytes := cmtrand.Bytes(tmhash.Size)
 	randbytes2 := cmtrand.Bytes(tmhash.Size)
 
-	block1 := types.BlockID{
-		Hash:          randbytes,
-		PartSetHeader: types.PartSetHeader{Total: 5, Hash: randbytes},
-	}
-	block2 := types.BlockID{
-		Hash:          randbytes2,
-		PartSetHeader: types.PartSetHeader{Total: 10, Hash: randbytes2},
-	}
+	block1 := types.BlockID{Hash: randbytes,
+		PartSetHeader: types.PartSetHeader{Total: 5, Hash: randbytes}}
+	block2 := types.BlockID{Hash: randbytes2,
+		PartSetHeader: types.PartSetHeader{Total: 10, Hash: randbytes2}}
 	height, round := int64(10), int32(1)
 
 	// sign a proposal for first time
@@ -328,8 +320,7 @@ func TestDifferByTimestamp(t *testing.T) {
 }
 
 func newVote(addr types.Address, idx int32, height int64, round int32,
-	typ cmtproto.SignedMsgType, blockID types.BlockID,
-) *types.Vote {
+	typ cmtproto.SignedMsgType, blockID types.BlockID) *types.Vote {
 	return &types.Vote{
 		ValidatorAddress: addr,
 		ValidatorIndex:   idx,

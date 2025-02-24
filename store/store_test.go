@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	stdlog "log"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -11,20 +12,21 @@ import (
 	"time"
 
 	dbm "github.com/cometbft/cometbft-db"
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
-	cmtstore "github.com/tendermint/tendermint/proto/tendermint/store"
-	cmtversion "github.com/tendermint/tendermint/proto/tendermint/version"
-	sm "github.com/tendermint/tendermint/state"
-	"github.com/tendermint/tendermint/types"
-	cmttime "github.com/tendermint/tendermint/types/time"
-	"github.com/tendermint/tendermint/version"
+	cfg "github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/crypto"
+	"github.com/cometbft/cometbft/internal/test"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
+	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
+	sm "github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/types"
+	cmttime "github.com/cometbft/cometbft/types/time"
+	"github.com/cometbft/cometbft/version"
 )
 
 // A cleanupFunc cleans up any config / test files created for a particular
@@ -41,12 +43,6 @@ func makeTestCommit(height int64, timestamp time.Time) *types.Commit {
 	}}
 	return types.NewCommit(height, 0,
 		types.BlockID{Hash: []byte(""), PartSetHeader: types.PartSetHeader{Hash: []byte(""), Total: 2}}, commitSigs)
-}
-
-func makeBlock(height int64, state sm.State, lastCommit *types.Commit) *types.Block {
-	txs := []types.Tx{make([]byte, types.BlockPartSizeBytes)} // TX taking one block part alone
-	block, _ := state.MakeBlock(height, txs, lastCommit, nil, state.Validators.GetProposer().Address)
-	return block
 }
 
 func makeStateAndBlockStore(logger log.Logger) (sm.State, *BlockStore, cleanupFunc) {
@@ -66,7 +62,6 @@ func makeStateAndBlockStore(logger log.Logger) (sm.State, *BlockStore, cleanupFu
 }
 
 func TestLoadBlockStoreState(t *testing.T) {
-
 	type blockStoreTest struct {
 		testName string
 		bss      *cmtstore.BlockStoreState
@@ -74,8 +69,10 @@ func TestLoadBlockStoreState(t *testing.T) {
 	}
 
 	testCases := []blockStoreTest{
-		{"success", &cmtstore.BlockStoreState{Base: 100, Height: 1000},
-			cmtstore.BlockStoreState{Base: 100, Height: 1000}},
+		{
+			"success", &cmtstore.BlockStoreState{Base: 100, Height: 1000},
+			cmtstore.BlockStoreState{Base: 100, Height: 1000},
+		},
 		{"empty", &cmtstore.BlockStoreState{}, cmtstore.BlockStoreState{}},
 		{"no base", &cmtstore.BlockStoreState{Height: 1000}, cmtstore.BlockStoreState{Base: 1, Height: 1000}},
 	}
@@ -141,9 +138,15 @@ var (
 
 func TestMain(m *testing.M) {
 	var cleanup cleanupFunc
+	var err error
 	state, _, cleanup = makeStateAndBlockStore(log.NewTMLogger(new(bytes.Buffer)))
-	block = makeBlock(1, state, new(types.Commit))
-	partSet = block.MakePartSet(types.BlockPartSizeBytes)
+	txs := []types.Tx{make([]byte, types.BlockPartSizeBytes)} // TX taking one block part alone
+	block = state.MakeBlock(state.LastBlockHeight+1, txs, new(types.Commit), nil, state.Validators.GetProposer().Address)
+
+	partSet, err = block.MakePartSet(types.BlockPartSizeBytes)
+	if err != nil {
+		stdlog.Fatal(err)
+	}
 	part1 = partSet.GetPart(0)
 	part2 = partSet.GetPart(1)
 	seenCommit1 = makeTestCommit(10, cmttime.Now())
@@ -170,19 +173,20 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 
 	// save a block big enough to have two block parts
 	txs := []types.Tx{make([]byte, types.BlockPartSizeBytes)} // TX taking one block part alone
-	block, _ := state.MakeBlock(bs.Height()+1, txs, new(types.Commit), nil, state.Validators.GetProposer().Address)
-	validPartSet := block.MakePartSet(types.BlockPartSizeBytes)
+	block := state.MakeBlock(bs.Height()+1, txs, new(types.Commit), nil, state.Validators.GetProposer().Address)
+	validPartSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
 	require.GreaterOrEqual(t, validPartSet.Total(), uint32(2))
 	part2 = validPartSet.GetPart(1)
 
-	seenCommit := makeTestCommit(block.Header.Height, cmttime.Now())
-	bs.SaveBlock(block, validPartSet, seenCommit)
+	seenCommit := makeTestCommit(10, cmttime.Now())
+	bs.SaveBlock(block, partSet, seenCommit)
 	require.EqualValues(t, 1, bs.Base(), "expecting the new height to be changed")
 	require.EqualValues(t, block.Header.Height, bs.Height(), "expecting the new height to be changed")
 
 	incompletePartSet := types.NewPartSetFromHeader(types.PartSetHeader{Total: 2})
 	uncontiguousPartSet := types.NewPartSetFromHeader(types.PartSetHeader{Total: 0})
-	_, err := uncontiguousPartSet.AddPart(part2)
+	_, err = uncontiguousPartSet.AddPart(part2)
 	require.Error(t, err)
 
 	header1 := types.Header{
@@ -227,7 +231,8 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 					Height:          5,
 					ChainID:         "block_test",
 					Time:            cmttime.Now(),
-					ProposerAddress: cmtrand.Bytes(crypto.AddressSize)},
+					ProposerAddress: cmtrand.Bytes(crypto.AddressSize),
+				},
 				makeTestCommit(5, cmttime.Now()),
 			),
 			parts:      validPartSet,
@@ -329,8 +334,10 @@ func TestBlockStoreSaveLoadBlock(t *testing.T) {
 				require.NoError(t, err)
 			}
 			bCommit := bs.LoadBlockCommit(commitHeight)
-			return &quad{block: bBlock, seenCommit: bSeenCommit, commit: bCommit,
-				meta: bBlockMeta}, nil
+			return &quad{
+				block: bBlock, seenCommit: bSeenCommit, commit: bCommit,
+				meta: bBlockMeta,
+			}, nil
 		})
 
 		if subStr := tuple.wantPanic; subStr != "" {
@@ -378,8 +385,9 @@ func TestLoadBaseMeta(t *testing.T) {
 	bs := NewBlockStore(dbm.NewMemDB())
 
 	for h := int64(1); h <= 10; h++ {
-		block := makeBlock(h, state, new(types.Commit))
-		partSet := block.MakePartSet(types.BlockPartSizeBytes)
+		block := state.MakeBlock(h, test.MakeNTxs(h, 10), new(types.Commit), nil, state.Validators.GetProposer().Address)
+		partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+		require.NoError(t, err)
 		seenCommit := makeTestCommit(h, cmttime.Now())
 		bs.SaveBlock(block, partSet, seenCommit)
 	}
@@ -390,6 +398,9 @@ func TestLoadBaseMeta(t *testing.T) {
 	baseBlock := bs.LoadBaseMeta()
 	assert.EqualValues(t, 4, baseBlock.Header.Height)
 	assert.EqualValues(t, 4, bs.Base())
+
+	require.NoError(t, bs.DeleteLatestBlock())
+	require.EqualValues(t, 9, bs.Height())
 }
 
 func TestLoadBlockPart(t *testing.T) {
@@ -454,8 +465,9 @@ func TestPruneBlocks(t *testing.T) {
 
 	// make more than 1000 blocks, to test batch deletions
 	for h := int64(1); h <= 1500; h++ {
-		block := makeBlock(h, state, new(types.Commit))
-		partSet := block.MakePartSet(types.BlockPartSizeBytes)
+		block := state.MakeBlock(h, test.MakeNTxs(h, 10), new(types.Commit), nil, state.Validators.GetProposer().Address)
+		partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+		require.NoError(t, err)
 		seenCommit := makeTestCommit(h, cmttime.Now())
 		bs.SaveBlock(block, partSet, seenCommit)
 	}
@@ -483,6 +495,7 @@ func TestPruneBlocks(t *testing.T) {
 	require.Nil(t, bs.LoadBlockByHash(prunedBlock.Hash()))
 	require.Nil(t, bs.LoadBlockCommit(1199))
 	require.Nil(t, bs.LoadBlockMeta(1199))
+	require.Nil(t, bs.LoadBlockMetaByHash(prunedBlock.Hash()))
 	require.Nil(t, bs.LoadBlockPart(1199, 1))
 
 	for i := int64(1); i < 1200; i++ {
@@ -544,7 +557,9 @@ func TestLoadBlockMeta(t *testing.T) {
 	// 3. A good blockMeta serialized and saved to the DB should be retrievable
 	meta := &types.BlockMeta{Header: types.Header{
 		Version: cmtversion.Consensus{
-			Block: version.BlockProtocol, App: 0}, Height: 1, ProposerAddress: cmtrand.Bytes(crypto.AddressSize)}}
+			Block: version.BlockProtocol, App: 0,
+		}, Height: 1, ProposerAddress: cmtrand.Bytes(crypto.AddressSize),
+	}}
 	pbm := meta.ToProto()
 	err = db.Set(calcBlockMetaKey(height), mustEncode(pbm))
 	require.NoError(t, err)
@@ -559,13 +574,36 @@ func TestLoadBlockMeta(t *testing.T) {
 	}
 }
 
+func TestLoadBlockMetaByHash(t *testing.T) {
+	config := cfg.ResetTestRoot("blockchain_reactor_test")
+	defer os.RemoveAll(config.RootDir)
+	stateStore := sm.NewStore(dbm.NewMemDB(), sm.StoreOptions{
+		DiscardABCIResponses: false,
+	})
+	state, err := stateStore.LoadFromDBOrGenesisFile(config.GenesisFile())
+	require.NoError(t, err)
+	bs := NewBlockStore(dbm.NewMemDB())
+
+	b1 := state.MakeBlock(state.LastBlockHeight+1, test.MakeNTxs(state.LastBlockHeight+1, 10), new(types.Commit), nil, state.Validators.GetProposer().Address)
+	partSet, err := b1.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	seenCommit := makeTestCommit(1, cmttime.Now())
+	bs.SaveBlock(b1, partSet, seenCommit)
+
+	baseBlock := bs.LoadBlockMetaByHash(b1.Hash())
+	assert.EqualValues(t, b1.Header.Height, baseBlock.Header.Height)
+	assert.EqualValues(t, b1.Header.LastBlockID, baseBlock.Header.LastBlockID)
+	assert.EqualValues(t, b1.Header.ChainID, baseBlock.Header.ChainID)
+}
+
 func TestBlockFetchAtHeight(t *testing.T) {
 	state, bs, cleanup := makeStateAndBlockStore(log.NewTMLogger(new(bytes.Buffer)))
 	defer cleanup()
 	require.Equal(t, bs.Height(), int64(0), "initially the height should be zero")
-	block := makeBlock(bs.Height()+1, state, new(types.Commit))
+	block := state.MakeBlock(bs.Height()+1, nil, new(types.Commit), nil, state.Validators.GetProposer().Address)
 
-	partSet := block.MakePartSet(types.BlockPartSizeBytes)
+	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
 	seenCommit := makeTestCommit(10, cmttime.Now())
 	bs.SaveBlock(block, partSet, seenCommit)
 	require.Equal(t, bs.Height(), block.Header.Height, "expecting the new height to be changed")

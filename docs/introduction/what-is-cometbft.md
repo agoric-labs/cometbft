@@ -1,5 +1,5 @@
 ---
-order: 5
+order: 4
 ---
 
 # What is CometBFT
@@ -22,8 +22,7 @@ reformalization of BFT in a more modern setting, with emphasis on
 peer-to-peer networking and cryptographic authentication. The name
 derives from the way transactions are batched in blocks, where each
 block contains a cryptographic hash of the previous one, forming a
-chain. In practice, the blockchain data structure actually optimizes BFT
-design.
+chain. 
 
 CometBFT consists of two chief technical components: a blockchain
 consensus engine and a generic application interface.
@@ -31,8 +30,8 @@ The consensus engine,
 which is based on [Tendermint consensus algorithm][tendermint-paper],
 ensures that the same transactions are
 recorded on every machine in the same order. The application interface,
-called the Application BlockChain Interface (ABCI), enables the
-transactions to be processed in any programming language. Unlike other
+called the Application BlockChain Interface (ABCI), delivers the transactions
+to applications for processing. Unlike other
 blockchain and consensus solutions, which come pre-packaged with built
 in state machines (like a fancy key-value store, or a quirky scripting
 language), developers can use CometBFT for BFT state machine
@@ -53,13 +52,13 @@ Hyperledger's Burrow.
 
 ### Zookeeper, etcd, consul
 
-Zookeeper, etcd, and consul are all implementations of a key-value store
-atop a classical, non-BFT consensus algorithm. Zookeeper uses a version
-of Paxos called Zookeeper Atomic Broadcast, while etcd and consul use
-the Raft consensus algorithm, which is much younger and simpler. A
+Zookeeper, etcd, and consul are all implementations of key-value stores
+atop a classical, non-BFT consensus algorithm. Zookeeper uses an
+algorithm called Zookeeper Atomic Broadcast, while etcd and consul use
+the Raft log replication algorithm. A
 typical cluster contains 3-5 machines, and can tolerate crash failures
-in up to 1/2 of the machines, but even a single Byzantine fault can
-destroy the system.
+in less than 1/2 of the machines (e.g., 1 out of 3 or 2 out of 5), 
+but even a single Byzantine fault can jeopardize the whole system.
 
 Each offering provides a slightly different implementation of a
 featureful key-value store, but all are generally focused around
@@ -124,7 +123,7 @@ consensus engine, and provides a particular application state.
 ## ABCI Overview
 
 The [Application BlockChain Interface
-(ABCI)](https://github.com/cometbft/cometbft/tree/v0.34.x/abci)
+(ABCI)](https://github.com/cometbft/cometbft/tree/v0.37.x/abci)
 allows for Byzantine Fault Tolerant replication of applications
 written in any programming language.
 
@@ -147,18 +146,15 @@ in design and suffers from "spaghetti code".
 Another problem with monolithic design is that it limits you to the
 language of the blockchain stack (or vice versa). In the case of
 Ethereum which supports a Turing-complete bytecode virtual-machine, it
-limits you to languages that compile down to that bytecode; today, those
-are Serpent and Solidity.
+limits you to languages that compile down to that bytecode; while the 
+[list](https://github.com/pirapira/awesome-ethereum-virtual-machine#programming-languages-that-compile-into-evm)
+is growing, it is still very limited.
 
 In contrast, our approach is to decouple the consensus engine and P2P
-layers from the details of the application state of the particular
+layers from the details of the state of the particular
 blockchain application. We do this by abstracting away the details of
 the application to an interface, which is implemented as a socket
 protocol.
-
-Thus we have an interface, the Application BlockChain Interface (ABCI),
-and its primary implementation, the Tendermint Socket Protocol (TSP, or
-Teaspoon).
 
 ### Intro to ABCI
 
@@ -192,7 +188,7 @@ core to the application. The application replies with corresponding
 response messages.
 
 The messages are specified here: [ABCI Message
-Types](https://github.com/cometbft/cometbft/blob/v0.34.x/proto/tendermint/abci/types.proto).
+Types](https://github.com/cometbft/cometbft/blob/v0.37.x/proto/tendermint/abci/types.proto).
 
 The **DeliverTx** message is the work horse of the application. Each
 transaction in the blockchain is delivered with this message. The
@@ -243,8 +239,7 @@ Solidity on Ethereum is a great language of choice for blockchain
 applications because, among other reasons, it is a completely
 deterministic programming language. However, it's also possible to
 create deterministic applications using existing popular languages like
-Java, C++, Python, or Go. Game programmers and blockchain developers are
-already familiar with creating deterministic programs by avoiding
+Java, C++, Python, or Go, by avoiding
 sources of non-determinism such as:
 
 - random number generators (without deterministic seeding)
@@ -275,14 +270,15 @@ committed in a chain, with one block at each **height**. A block may
 fail to be committed, in which case the algorithm moves to the next
 **round**, and a new validator gets to propose a block for that height.
 Two stages of voting are required to successfully commit a block; we
-call them **pre-vote** and **pre-commit**. A block is committed when
-more than 2/3 of validators pre-commit for the same block in the same
-round.
+call them **pre-vote** and **pre-commit**. 
 
 There is a picture of a couple doing the polka because validators are
 doing something like a polka dance. When more than two-thirds of the
 validators pre-vote for the same block, we call that a **polka**. Every
 pre-commit must be justified by a polka in the same round.
+A block is committed when
+more than 2/3 of validators pre-commit for the same block in the same
+round.
 
 Validators may fail to commit a block for a number of reasons; the
 current proposer may be offline, or the network may be slow. Tendermint consensus

@@ -1,5 +1,4 @@
-// Package query implements the custom query format used to filter event
-// subscriptions in CometBFT.
+// Package query provides a parser for a custom query format:
 //
 //	abci.invoice.number=22 AND abci.invoice.owner=Ivan
 //
@@ -41,7 +40,9 @@ type Condition struct {
 // invalid.
 func New(s string) (*Query, error) {
 	p := &QueryParser{Buffer: fmt.Sprintf(`"%s"`, s)}
-	p.Init()
+	if err := p.Init(); err != nil {
+		return nil, err
+	}
 	if err := p.Parse(); err != nil {
 		return nil, err
 	}
@@ -103,7 +104,7 @@ func (q *Query) Conditions() ([]Condition, error) {
 	buffer, begin, end := q.parser.Buffer, 0, 0
 
 	// tokens must be in the following order: tag ("tx.gas") -> operator ("=") -> operand ("7")
-	for token := range q.parser.Tokens() {
+	for _, token := range q.parser.Tokens() {
 		switch token.pegRule {
 		case rulePegText:
 			begin, end = int(token.begin), int(token.end)
@@ -153,6 +154,7 @@ func (q *Query) Conditions() ([]Condition, error) {
 				conditions = append(conditions, Condition{eventAttr, op, value})
 			} else {
 				valueBig := new(big.Int)
+
 				_, ok := valueBig.SetString(number, 10)
 				if !ok {
 					err := fmt.Errorf(
@@ -216,7 +218,7 @@ func (q *Query) Matches(events map[string][]string) (bool, error) {
 	// tokens must be in the following order:
 
 	// tag ("tx.gas") -> operator ("=") -> operand ("7")
-	for token := range q.parser.Tokens() {
+	for _, token := range q.parser.Tokens() {
 		switch token.pegRule {
 		case rulePegText:
 			begin, end = int(token.begin), int(token.end)
@@ -302,6 +304,7 @@ func (q *Query) Matches(events map[string][]string) (bool, error) {
 			} else {
 				value := new(big.Int)
 				_, ok := value.SetString(number, 10)
+
 				if !ok {
 					err := fmt.Errorf(
 						"problem parsing %s as bigInt (should never happen if the grammar is correct)",
@@ -486,6 +489,7 @@ func matchValue(value string, op Operator, operand reflect.Value) (bool, error) 
 			} else {
 				// try our best to convert value from tags to big int
 				_, ok := v.SetString(filteredValue, 10)
+
 				if !ok {
 					return false, fmt.Errorf("failed to convert value %v from event attribute to big int", filteredValue)
 				}

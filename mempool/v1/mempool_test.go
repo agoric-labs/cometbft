@@ -15,14 +15,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/abci/example/code"
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/mempool"
-	"github.com/tendermint/tendermint/proxy"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/abci/example/code"
+	"github.com/cometbft/cometbft/abci/example/kvstore"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/mempool"
+	"github.com/cometbft/cometbft/proxy"
+	"github.com/cometbft/cometbft/types"
 )
 
 // application extends the KV store application by overriding CheckTx to provide
@@ -521,7 +521,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 
 func TestTxMempool_ExpiredTxs_Timestamp(t *testing.T) {
 	txmp := setup(t, 5000)
-	txmp.config.TTLDuration = 5 * time.Millisecond
+	txmp.config.TTLDuration = 5 * time.Millisecond //nolint:staticcheck // SA1019 Priority mempool deprecated but still supported in this release.
 
 	added1 := checkTxs(t, txmp, 10, 0)
 	require.Equal(t, len(added1), txmp.Size())
@@ -570,7 +570,7 @@ func TestTxMempool_ExpiredTxs_Timestamp(t *testing.T) {
 func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp := setup(t, 500)
 	txmp.height = 100
-	txmp.config.TTLNumBlocks = 10
+	txmp.config.TTLNumBlocks = 10 //nolint:staticcheck // SA1019 Priority mempool deprecated but still supported in this release.
 
 	tTxs := checkTxs(t, txmp, 100, 0)
 	require.Equal(t, len(tTxs), txmp.Size())

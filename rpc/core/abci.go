@@ -1,15 +1,15 @@
 package core
 
 import (
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/proxy"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/bytes"
+	"github.com/cometbft/cometbft/proxy"
+	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
 )
 
 // ABCIQuery queries the application for some information.
-// More: https://docs.cometbft.com/v0.34/rpc/#/ABCI/abci_query
+// More: https://docs.cometbft.com/v0.37/rpc/#/ABCI/abci_query
 func ABCIQuery(
 	ctx *rpctypes.Context,
 	path string,
@@ -31,7 +31,7 @@ func ABCIQuery(
 }
 
 // ABCIInfo gets some info about the application.
-// More: https://docs.cometbft.com/v0.34/rpc/#/ABCI/abci_info
+// More: https://docs.cometbft.com/v0.37/rpc/#/ABCI/abci_info
 func ABCIInfo(ctx *rpctypes.Context) (*ctypes.ResultABCIInfo, error) {
 	resInfo, err := env.ProxyAppQuery.InfoSync(proxy.RequestInfo)
 	if err != nil {

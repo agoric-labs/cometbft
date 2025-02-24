@@ -8,9 +8,9 @@ import (
 
 	dbm "github.com/cometbft/cometbft-db"
 
-	"github.com/tendermint/tendermint/abci/example/code"
-	"github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/version"
+	"github.com/cometbft/cometbft/abci/example/code"
+	"github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/version"
 )
 
 var (
@@ -68,6 +68,7 @@ type Application struct {
 
 	state        State
 	RetainBlocks int64 // blocks to retain after commit (via ResponseCommit.RetainHeight)
+	txToRemove   map[string]struct{}
 	// If true, the app will generate block events in BeginBlock. Used to test the event indexer
 	// Should be false by default to avoid generating too much data.
 	genBlockEvents bool
@@ -94,15 +95,19 @@ func (app *Application) Info(req types.RequestInfo) (resInfo types.ResponseInfo)
 
 // tx is either "key=value" or just arbitrary bytes
 func (app *Application) DeliverTx(req types.RequestDeliverTx) types.ResponseDeliverTx {
-	var key, value []byte
+	if isReplacedTx(req.Tx) {
+		app.txToRemove[string(req.Tx)] = struct{}{}
+	}
+	var key, value string
+
 	parts := bytes.Split(req.Tx, []byte("="))
 	if len(parts) == 2 {
-		key, value = parts[0], parts[1]
+		key, value = string(parts[0]), string(parts[1])
 	} else {
-		key, value = req.Tx, req.Tx
+		key, value = string(req.Tx), string(req.Tx)
 	}
 
-	err := app.state.db.Set(prefixKey(key), value)
+	err := app.state.db.Set(prefixKey([]byte(key)), []byte(value))
 	if err != nil {
 		panic(err)
 	}
@@ -112,19 +117,19 @@ func (app *Application) DeliverTx(req types.RequestDeliverTx) types.ResponseDeli
 		{
 			Type: "app",
 			Attributes: []types.EventAttribute{
-				{Key: []byte("creator"), Value: []byte("Cosmoshi Netowoko"), Index: true},
-				{Key: []byte("key"), Value: key, Index: true},
-				{Key: []byte("index_key"), Value: []byte("index is working"), Index: true},
-				{Key: []byte("noindex_key"), Value: []byte("index is working"), Index: false},
+				{Key: "creator", Value: "Cosmoshi Netowoko", Index: true},
+				{Key: "key", Value: key, Index: true},
+				{Key: "index_key", Value: "index is working", Index: true},
+				{Key: "noindex_key", Value: "index is working", Index: false},
 			},
 		},
 		{
 			Type: "app",
 			Attributes: []types.EventAttribute{
-				{Key: []byte("creator"), Value: []byte("Cosmoshi"), Index: true},
-				{Key: []byte("key"), Value: value, Index: true},
-				{Key: []byte("index_key"), Value: []byte("index is working"), Index: true},
-				{Key: []byte("noindex_key"), Value: []byte("index is working"), Index: false},
+				{Key: "creator", Value: "Cosmoshi", Index: true},
+				{Key: "key", Value: value, Index: true},
+				{Key: "index_key", Value: "index is working", Index: true},
+				{Key: "noindex_key", Value: "index is working", Index: false},
 			},
 		},
 	}
@@ -133,6 +138,15 @@ func (app *Application) DeliverTx(req types.RequestDeliverTx) types.ResponseDeli
 }
 
 func (app *Application) CheckTx(req types.RequestCheckTx) types.ResponseCheckTx {
+	if len(req.Tx) == 0 {
+		return types.ResponseCheckTx{Code: code.CodeTypeRejected}
+	}
+
+	if req.Type == types.CheckTxType_Recheck {
+		if _, ok := app.txToRemove[string(req.Tx)]; ok {
+			return types.ResponseCheckTx{Code: code.CodeTypeExecuted, GasWanted: 1}
+		}
+	}
 	return types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}
 }
 
@@ -142,6 +156,8 @@ func (app *Application) Commit() types.ResponseCommit {
 	binary.PutVarint(appHash, app.state.Size)
 	app.state.AppHash = appHash
 	app.state.Height++
+
+	// empty out the set of transactions to remove via rechecktx
 	saveState(app.state)
 
 	resp := types.ResponseCommit{Data: appHash}
@@ -188,7 +204,7 @@ func (app *Application) Query(reqQuery types.RequestQuery) (resQuery types.Respo
 }
 
 func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBeginBlock {
-
+	app.txToRemove = map[string]struct{}{}
 	response := types.ResponseBeginBlock{}
 
 	if !app.genBlockEvents {
@@ -202,13 +218,13 @@ func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBe
 					Type: "begin_event",
 					Attributes: []types.EventAttribute{
 						{
-							Key:   []byte("foo"),
-							Value: []byte("100"),
+							Key:   "foo",
+							Value: "100",
 							Index: true,
 						},
 						{
-							Key:   []byte("bar"),
-							Value: []byte("200"),
+							Key:   "bar",
+							Value: "200",
 							Index: true,
 						},
 					},
@@ -217,13 +233,13 @@ func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBe
 					Type: "begin_event",
 					Attributes: []types.EventAttribute{
 						{
-							Key:   []byte("foo"),
-							Value: []byte("200"),
+							Key:   "foo",
+							Value: "200",
 							Index: true,
 						},
 						{
-							Key:   []byte("bar"),
-							Value: []byte("300"),
+							Key:   "bar",
+							Value: "300",
 							Index: true,
 						},
 					},
@@ -237,13 +253,13 @@ func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBe
 					Type: "begin_event",
 					Attributes: []types.EventAttribute{
 						{
-							Key:   []byte("foo"),
-							Value: []byte("400"),
+							Key:   "foo",
+							Value: "400",
 							Index: true,
 						},
 						{
-							Key:   []byte("bar"),
-							Value: []byte("300"),
+							Key:   "bar",
+							Value: "300",
 							Index: true,
 						},
 					},
@@ -253,4 +269,15 @@ func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBe
 	}
 
 	return response
+}
+
+func (app *Application) ProcessProposal(
+	req types.RequestProcessProposal,
+) types.ResponseProcessProposal {
+	for _, tx := range req.Txs {
+		if len(tx) == 0 {
+			return types.ResponseProcessProposal{Status: types.ResponseProcessProposal_REJECT}
+		}
+	}
+	return types.ResponseProcessProposal{Status: types.ResponseProcessProposal_ACCEPT}
 }

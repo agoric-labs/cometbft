@@ -27,6 +27,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal("/foo/bar", cfg.GenesisFile())
 	assert.Equal("/opt/data", cfg.DBDir())
 	assert.Equal("/foo/wal/mem", cfg.Mempool.WalDir())
+
 }
 
 func TestConfigValidateBasic(t *testing.T) {
@@ -35,6 +36,11 @@ func TestConfigValidateBasic(t *testing.T) {
 
 	// tamper with timeout_propose
 	cfg.Consensus.TimeoutPropose = -10 * time.Second
+	assert.Error(t, cfg.ValidateBasic())
+	cfg.Consensus.TimeoutPropose = 3 * time.Second
+
+	cfg.Consensus.CreateEmptyBlocks = false
+	cfg.Mempool.Type = MempoolTypeNop
 	assert.Error(t, cfg.ValidateBasic())
 }
 
@@ -120,6 +126,9 @@ func TestMempoolConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+
+	reflect.ValueOf(cfg).Elem().FieldByName("Type").SetString("invalid")
+	assert.Error(t, cfg.ValidateBasic())
 }
 
 func TestStateSyncConfigValidateBasic(t *testing.T) {
@@ -127,20 +136,20 @@ func TestStateSyncConfigValidateBasic(t *testing.T) {
 	require.NoError(t, cfg.ValidateBasic())
 }
 
-func TestFastSyncConfigValidateBasic(t *testing.T) {
-	cfg := TestFastSyncConfig()
+func TestBlockSyncConfigValidateBasic(t *testing.T) {
+	cfg := TestBlockSyncConfig()
 	assert.NoError(t, cfg.ValidateBasic())
 
 	// tamper with version
 	cfg.Version = "v1"
-	assert.NoError(t, cfg.ValidateBasic())
+	assert.Error(t, cfg.ValidateBasic())
 
 	cfg.Version = "invalid"
 	assert.Error(t, cfg.ValidateBasic())
 }
 
-//nolint:lll
 func TestConsensusConfig_ValidateBasic(t *testing.T) {
+	//nolint: lll
 	testcases := map[string]struct {
 		modify    func(*ConsensusConfig)
 		expectErr bool
@@ -165,7 +174,6 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 		"PeerQueryMaj23SleepDuration negative": {func(c *ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
 		"DoubleSignCheckHeight negative":       {func(c *ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
 	}
-
 	for desc, tc := range testcases {
 		tc := tc // appease linter
 		t.Run(desc, func(t *testing.T) {

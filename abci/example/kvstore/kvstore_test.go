@@ -8,14 +8,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/service"
+	"github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/libs/service"
 
-	abcicli "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/example/code"
-	abciserver "github.com/tendermint/tendermint/abci/server"
-	"github.com/tendermint/tendermint/abci/types"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	abcicli "github.com/cometbft/cometbft/abci/client"
+	"github.com/cometbft/cometbft/abci/example/code"
+	abciserver "github.com/cometbft/cometbft/abci/server"
+	"github.com/cometbft/cometbft/abci/types"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 const (
@@ -70,6 +70,24 @@ func TestKVStoreKV(t *testing.T) {
 	testKVStore(t, kvstore, tx, key, value)
 }
 
+func TestPersistentKVStoreEmptyTX(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "abci-kvstore-test") // TODO
+	if err != nil {
+		t.Fatal(err)
+	}
+	kvstore := NewPersistentKVStoreApplication(dir)
+	tx := []byte("")
+	reqCheck := types.RequestCheckTx{Tx: tx}
+	resCheck := kvstore.CheckTx(reqCheck)
+	require.Equal(t, resCheck.Code, code.CodeTypeRejected)
+
+	txs := make([][]byte, 0, 4)
+	txs = append(txs, []byte("key=value"), []byte("key"), []byte(""), []byte("kee=value"))
+	reqPrepare := types.RequestPrepareProposal{Txs: txs, MaxTxBytes: 10 * 1024}
+	resPrepare := kvstore.PrepareProposal(reqPrepare)
+	require.Equal(t, len(reqPrepare.Txs), len(resPrepare.Txs)+1, "Empty transaction not properly removed")
+}
+
 func TestPersistentKVStoreKV(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "abci-kvstore-test") // TODO
 	if err != nil {
@@ -114,6 +132,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 	if resInfo.LastBlockHeight != height {
 		t.Fatalf("expected height of %d, got %d", height, resInfo.LastBlockHeight)
 	}
+
 }
 
 // add a validator, remove a validator, update a validator
@@ -180,6 +199,7 @@ func TestValUpdates(t *testing.T) {
 	vals1 = append([]types.ValidatorUpdate{v1}, vals1[1:]...)
 	vals2 = kvstore.Validators()
 	valsEqual(t, vals1, vals2)
+
 }
 
 func makeApplyBlock(
@@ -187,8 +207,7 @@ func makeApplyBlock(
 	kvstore types.Application,
 	heightInt int,
 	diff []types.ValidatorUpdate,
-	txs ...[]byte,
-) {
+	txs ...[]byte) {
 	// make and apply block
 	height := int64(heightInt)
 	hash := []byte("foo")
@@ -206,6 +225,7 @@ func makeApplyBlock(
 	kvstore.Commit()
 
 	valsEqual(t, diff, resEndBlock.ValidatorUpdates)
+
 }
 
 // order doesn't matter

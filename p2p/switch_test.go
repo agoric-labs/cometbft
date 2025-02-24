@@ -14,20 +14,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	"github.com/tendermint/tendermint/p2p/conn"
-	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	"github.com/cometbft/cometbft/p2p/conn"
+	p2pproto "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
-var cfg *config.P2PConfig
+var (
+	cfg *config.P2PConfig
+)
 
 func init() {
 	cfg = config.DefaultP2PConfig()
@@ -79,24 +81,6 @@ func (tr *TestReactor) ReceiveEnvelope(e Envelope) {
 	}
 }
 
-func (tr *TestReactor) Receive(chID byte, peer Peer, msgBytes []byte) {
-	msg := &p2pproto.Message{}
-	err := proto.Unmarshal(msgBytes, msg)
-	if err != nil {
-		panic(err)
-	}
-	um, err := msg.Unwrap()
-	if err != nil {
-		panic(err)
-	}
-
-	tr.ReceiveEnvelope(Envelope{
-		ChannelID: chID,
-		Src:       peer,
-		Message:   um,
-	})
-}
-
 func (tr *TestReactor) getMsgs(chID byte) []PeerMessage {
 	tr.mtx.Lock()
 	defer tr.mtx.Unlock()
@@ -116,8 +100,7 @@ func MakeSwitchPair(t testing.TB, initSwitch func(int, *Switch) *Switch) (*Switc
 func initSwitchFunc(i int, sw *Switch) *Switch {
 	sw.SetAddrBook(&AddrBookMock{
 		Addrs:    make(map[string]struct{}),
-		OurAddrs: make(map[string]struct{}),
-	})
+		OurAddrs: make(map[string]struct{})})
 
 	// Make two reactors of two channels each
 	sw.AddReactor("foo", NewTestReactor([]*conn.ChannelDescriptor{
@@ -467,10 +450,10 @@ func TestSwitchStopPeerForError(t *testing.T) {
 
 	// send messages to the peer from sw1
 	p := sw1.Peers().List()[0]
-	SendEnvelopeShim(p, Envelope{
+	p.SendEnvelope(Envelope{
 		ChannelID: 0x1,
 		Message:   &p2pproto.Message{},
-	}, sw1.Logger)
+	})
 
 	// stop sw2. this should cause the p to fail,
 	// which results in calling StopPeerForError internally
@@ -722,11 +705,9 @@ func (et errorTransport) NetAddress() NetAddress {
 func (et errorTransport) Accept(c peerConfig) (Peer, error) {
 	return nil, et.acceptErr
 }
-
 func (errorTransport) Dial(NetAddress, peerConfig) (Peer, error) {
 	panic("not implemented")
 }
-
 func (errorTransport) Cleanup(Peer) {
 	panic("not implemented")
 }
@@ -881,6 +862,7 @@ func BenchmarkSwitchBroadcast(b *testing.B) {
 }
 
 func TestSwitchRemovalErr(t *testing.T) {
+
 	sw1, sw2 := MakeSwitchPair(t, func(i int, sw *Switch) *Switch {
 		return initSwitchFunc(i, sw)
 	})

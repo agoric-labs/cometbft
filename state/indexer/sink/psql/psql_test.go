@@ -12,15 +12,15 @@ import (
 	"time"
 
 	"github.com/adlio/schema"
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/ory/dockertest"
 	"github.com/ory/dockertest/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/state/txindex"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/state/txindex"
+	"github.com/cometbft/cometbft/types"
 
 	// Register the Postgres database driver.
 	_ "github.com/lib/pq"
@@ -169,8 +169,8 @@ func TestIndexing(t *testing.T) {
 
 			{Type: "", Attributes: []abci.EventAttribute{
 				{
-					Key:   []byte("not_allowed"),
-					Value: []byte("Vlad"),
+					Key:   "not_allowed",
+					Value: "Vlad",
 					Index: true,
 				},
 			}},

@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/cometbft/cometbft/crypto/merkle"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
 )
 
 const (
@@ -125,7 +125,7 @@ func TestPartSetHeaderValidateBasic(t *testing.T) {
 	}
 }
 
-func TestPartValidateBasic(t *testing.T) {
+func TestPart_ValidateBasic(t *testing.T) {
 	testCases := []struct {
 		testName     string
 		malleatePart func(*Part)
@@ -137,6 +137,7 @@ func TestPartValidateBasic(t *testing.T) {
 			pt.Index = 1
 			pt.Bytes = make([]byte, BlockPartSizeBytes-1)
 			pt.Proof.Total = 2
+			pt.Proof.Index = 1
 		}, false},
 		{"Too small inner part", func(pt *Part) {
 			pt.Index = 0
@@ -149,6 +150,11 @@ func TestPartValidateBasic(t *testing.T) {
 				Index:    1,
 				LeafHash: make([]byte, 1024*1024),
 			}
+			pt.Index = 1
+		}, true},
+		{"Index mismatch", func(pt *Part) {
+			pt.Index = 1
+			pt.Proof.Index = 0
 		}, true},
 	}
 
@@ -171,10 +177,8 @@ func TestParSetHeaderProtoBuf(t *testing.T) {
 		expPass bool
 	}{
 		{"success empty", &PartSetHeader{}, true},
-		{
-			"success",
-			&PartSetHeader{Total: 1, Hash: []byte("hash")}, true,
-		},
+		{"success",
+			&PartSetHeader{Total: 1, Hash: []byte("hash")}, true},
 	}
 
 	for _, tc := range testCases {
@@ -190,6 +194,7 @@ func TestParSetHeaderProtoBuf(t *testing.T) {
 }
 
 func TestPartProtoBuf(t *testing.T) {
+
 	proof := merkle.Proof{
 		Total:    1,
 		Index:    1,
@@ -202,10 +207,8 @@ func TestPartProtoBuf(t *testing.T) {
 	}{
 		{"failure empty", &Part{}, false},
 		{"failure nil", nil, false},
-		{
-			"success",
-			&Part{Index: 1, Bytes: cmtrand.Bytes(32), Proof: proof}, true,
-		},
+		{"success",
+			&Part{Index: 1, Bytes: cmtrand.Bytes(32), Proof: proof}, true},
 	}
 
 	for _, tc := range testCases {

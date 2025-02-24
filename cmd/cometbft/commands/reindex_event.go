@@ -5,19 +5,20 @@ import (
 	"fmt"
 	"strings"
 
-	dbm "github.com/cometbft/cometbft-db"
 	"github.com/spf13/cobra"
 
-	abcitypes "github.com/tendermint/tendermint/abci/types"
-	cmtcfg "github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/progressbar"
-	"github.com/tendermint/tendermint/state"
-	"github.com/tendermint/tendermint/state/indexer"
-	blockidxkv "github.com/tendermint/tendermint/state/indexer/block/kv"
-	"github.com/tendermint/tendermint/state/indexer/sink/psql"
-	"github.com/tendermint/tendermint/state/txindex"
-	"github.com/tendermint/tendermint/state/txindex/kv"
-	"github.com/tendermint/tendermint/types"
+	dbm "github.com/cometbft/cometbft-db"
+
+	abcitypes "github.com/cometbft/cometbft/abci/types"
+	cmtcfg "github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/libs/progressbar"
+	"github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/state/indexer"
+	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
+	"github.com/cometbft/cometbft/state/indexer/sink/psql"
+	"github.com/cometbft/cometbft/state/txindex"
+	"github.com/cometbft/cometbft/state/txindex/kv"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -33,16 +34,16 @@ var (
 var ReIndexEventCmd = &cobra.Command{
 	Use:     "reindex-event",
 	Aliases: []string{"reindex_event"},
-	Short:   "Re-index events to the event store backends",
+	Short:   "reindex events to the event store backends",
 	Long: `
-reindex-event is an offline tooling to re-index block and tx events to the eventsinks.
-You can run this command when the event store backend dropped/disconnected or you want to
+reindex-event is an offline tooling to re-index block and tx events to the eventsinks,
+you can run this command when the event store backend dropped/disconnected or you want to 
 replace the backend. The default start-height is 0, meaning the tooling will start 
 reindex from the base block height(inclusive); and the default end-height is 0, meaning 
 the tooling will reindex until the latest block height(inclusive). User can omit
 either or both arguments.
 
-Note: This operation requires ABCIResponses. Do not set DiscardABCIResponses to true if you
+Note: This operation requires ABCI Responses. Do not set DiscardABCIResponses to true if you
 want to use this command.
 	`,
 	Example: `

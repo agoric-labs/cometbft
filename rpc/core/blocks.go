@@ -5,24 +5,18 @@ import (
 	"fmt"
 	"sort"
 
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtquery "github.com/tendermint/tendermint/libs/pubsub/query"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
-	blockidxnull "github.com/tendermint/tendermint/state/indexer/block/null"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/libs/bytes"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
+	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
+	blockidxnull "github.com/cometbft/cometbft/state/indexer/block/null"
+	"github.com/cometbft/cometbft/types"
 )
 
 // BlockchainInfo gets block headers for minHeight <= height <= maxHeight.
-//
-// If maxHeight does not yet exist, blocks up to the current height will be
-// returned. If minHeight does not exist (due to pruning), earliest existing
-// height will be used.
-//
-// At most 20 items will be returned. Block headers are returned in descending
-// order (highest first).
-//
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/blockchain
+// Block headers are returned in descending order (highest first).
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/blockchain
 func BlockchainInfo(ctx *rpctypes.Context, minHeight, maxHeight int64) (*ctypes.ResultBlockchainInfo, error) {
 	// maximum 20 block metas
 	const limit int64 = 20
@@ -46,7 +40,8 @@ func BlockchainInfo(ctx *rpctypes.Context, minHeight, maxHeight int64) (*ctypes.
 
 	return &ctypes.ResultBlockchainInfo{
 		LastHeight: env.BlockStore.Height(),
-		BlockMetas: blockMetas}, nil
+		BlockMetas: blockMetas,
+	}, nil
 }
 
 // error if either min or max are negative or min > max
@@ -82,9 +77,41 @@ func filterMinMax(base, height, min, max, limit int64) (int64, int64, error) {
 	return min, max, nil
 }
 
+// Header gets block header at a given height.
+// If no height is provided, it will fetch the latest header.
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/header
+func Header(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultHeader, error) {
+	height, err := getHeight(env.BlockStore.Height(), heightPtr)
+	if err != nil {
+		return nil, err
+	}
+
+	blockMeta := env.BlockStore.LoadBlockMeta(height)
+	if blockMeta == nil {
+		return &ctypes.ResultHeader{}, nil
+	}
+
+	return &ctypes.ResultHeader{Header: &blockMeta.Header}, nil
+}
+
+// HeaderByHash gets header by hash.
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/header_by_hash
+func HeaderByHash(ctx *rpctypes.Context, hash bytes.HexBytes) (*ctypes.ResultHeader, error) {
+	// N.B. The hash parameter is HexBytes so that the reflective parameter
+	// decoding logic in the HTTP service will correctly translate from JSON.
+	// See https://github.com/tendermint/tendermint/issues/6802 for context.
+
+	blockMeta := env.BlockStore.LoadBlockMetaByHash(hash)
+	if blockMeta == nil {
+		return &ctypes.ResultHeader{}, nil
+	}
+
+	return &ctypes.ResultHeader{Header: &blockMeta.Header}, nil
+}
+
 // Block gets block at a given height.
 // If no height is provided, it will fetch the latest block.
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/block
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/block
 func Block(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultBlock, error) {
 	height, err := getHeight(env.BlockStore.Height(), heightPtr)
 	if err != nil {
@@ -100,7 +127,7 @@ func Block(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultBlock, error)
 }
 
 // BlockByHash gets block by hash.
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/block_by_hash
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/block_by_hash
 func BlockByHash(ctx *rpctypes.Context, hash []byte) (*ctypes.ResultBlock, error) {
 	block := env.BlockStore.LoadBlockByHash(hash)
 	if block == nil {
@@ -113,7 +140,7 @@ func BlockByHash(ctx *rpctypes.Context, hash []byte) (*ctypes.ResultBlock, error
 
 // Commit gets block commit at a given height.
 // If no height is provided, it will fetch the commit for the latest block.
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/commit
+// More: https://docs.cometbft.com/main/rpc/#/Info/commit
 func Commit(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultCommit, error) {
 	height, err := getHeight(env.BlockStore.Height(), heightPtr)
 	if err != nil {
@@ -140,12 +167,11 @@ func Commit(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultCommit, erro
 
 // BlockResults gets ABCIResults at a given height.
 // If no height is provided, it will fetch results for the latest block.
-// When DiscardABCIResponses is enabled, an error will be returned.
 //
 // Results are for the height of the block containing the txs.
 // Thus response.results.deliver_tx[5] is the results of executing
 // getBlock(h).Txs[5]
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/block_results
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/block_results
 func BlockResults(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultBlockResults, error) {
 	height, err := getHeight(env.BlockStore.Height(), heightPtr)
 	if err != nil {
@@ -167,21 +193,6 @@ func BlockResults(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultBlockR
 	}, nil
 }
 
-func BlockSearchMatchEvents(
-	ctx *rpctypes.Context,
-	query string,
-	pagePtr, perPagePtr *int,
-	orderBy string,
-	matchEvents bool,
-) (*ctypes.ResultBlockSearch, error) {
-	if matchEvents {
-		query = "match.events = 1 AND " + query
-	} else {
-		query = "match.events = 0 AND " + query
-	}
-	return BlockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
-}
-
 // BlockSearch searches for a paginated set of blocks matching BeginBlock and
 // EndBlock event search criteria.
 func BlockSearch(
@@ -190,11 +201,11 @@ func BlockSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
-
 	// skip if block indexing is disabled
 	if _, ok := env.BlockIndexer.(*blockidxnull.BlockerIndexer); ok {
 		return nil, errors.New("block indexing is disabled")
 	}
+
 	q, err := cmtquery.New(query)
 	if err != nil {
 		return nil, err

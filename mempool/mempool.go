@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -22,6 +22,8 @@ const (
 
 	MaxActiveIDs = math.MaxUint16
 )
+
+//go:generate ../scripts/mockery_generate.sh Mempool
 
 // Mempool defines the mempool interface.
 //
@@ -51,6 +53,8 @@ type Mempool interface {
 
 	// Lock locks the mempool. The consensus must be able to hold lock to safely
 	// update.
+	// Before acquiring the lock, it signals the mempool that a new update is coming.
+	// If the mempool is still rechecking at this point, it should be considered full.
 	Lock()
 
 	// Unlock unlocks the mempool.
