@@ -102,7 +102,6 @@ paths:
         drop transactions, which might become valid in the future
         (https://github.com/tendermint/tendermint/issues/3322)
 
-
         Please refer to
         https://docs.cometbft.com/v0.37/core/using-cometbft.html#formatting
         for formatting/encoding rules.
@@ -919,6 +918,14 @@ paths:
             type: string
             default: "asc"
             example: "asc"
+        - in: query
+          name: match_events
+          description: Match attributes in query within events, in addition to the height & txhash
+          required: false
+          schema:
+            type: boolean
+            default: false
+            example: true
       tags:
         - Info
       responses:
@@ -974,6 +981,14 @@ paths:
             type: string
             default: "desc"
             example: "asc"
+        - in: query
+          name: match_events
+          description: Match attributes in query within events, in addition to the height
+          required: false
+          schema:
+            type: boolean
+            default: false
+            example: true
       tags:
         - Info
       responses:
@@ -2917,4 +2932,31 @@ components:
             hash:
               type: string
               example: "38D4B26B5B725C4F13571EFE022C030390E4C33C8CF6F88EDD142EA769642DBD"
+          type: object
+
+    BlockSearchResponse:
+      type: object
+      required:
+        - "jsonrpc"
+        - "id"
+        - "result"
+      properties:
+        jsonrpc:
+          type: string
+          example: "2.0"
+        id:
+          type: integer
+          example: 0
+        result:
+          required:
+            - "blocks"
+            - "total_count"
+          properties:
+            blocks:
+              type: array
+              items:
+                $ref: "#/components/schemas/BlockComplete"
+            total_count:
+              type: integer
+              example: 2
           type: object

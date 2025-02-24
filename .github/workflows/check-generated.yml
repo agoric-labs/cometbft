@@ -8,6 +8,8 @@ on:
   pull_request:
     branches:
       - v0.37.x
+      - main
+      - Agoric
 
 permissions:
   contents: read

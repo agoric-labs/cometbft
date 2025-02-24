@@ -83,7 +83,6 @@ func TestRootHome(t *testing.T) {
 }
 
 func TestRootFlagsEnv(t *testing.T) {
-
 	// defaults
 	defaults := cfg.DefaultConfig()
 	defaultLogLvl := defaults.LogLevel
@@ -116,7 +115,6 @@ func TestRootFlagsEnv(t *testing.T) {
 }
 
 func TestRootConfig(t *testing.T) {
-
 	// write non-default config
 	nonDefaultLogLvl := "abc:debug"
 	cvals := map[string]string{

@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultDirPerm is the default permissions used when creating directories.
-const DefaultDirPerm = 0700
+const DefaultDirPerm = 0o700
 
 var configTemplate *template.Template
 

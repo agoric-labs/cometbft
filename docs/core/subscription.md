@@ -54,6 +54,20 @@ events whose attribute values are numeric.
 - When floating points do get converted to integers, they are not rounded, the decimal part is simply truncated.
 This has been done to preserve the behaviour present before introducing the support for BigInts in the query parameters. 
 
+
+## Query parameter and event type restrictions
+
+While CometBFT imposes no restrictions on the application with regards to the type of 
+the event output, there are several restrictions when it comes to querying 
+events whose attribute values are numeric. 
+
+- Queries cannot include negative numbers
+- If floating points are compared to integers, they are converted to an integer
+- Floating point to floating point comparison leads to a loss of precision for very big floating point numbers
+(e.g., `10000000000000000000.0` is treated the same as `10000000000000000000.6`) 
+- When floating points do get converted to integers, they are always rounded down.
+This has been done to preserve the behaviour present before introducing the support for BigInts in the query parameters. 
+
 ## ValidatorSetUpdates
 
 When validator set changes, ValidatorSetUpdates event is published. The

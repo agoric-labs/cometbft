@@ -618,6 +618,105 @@ func TestMConnectionChannelOverflow(t *testing.T) {
 
 }
 
+func TestMConnectionReceiveBufferAndCapacity(t *testing.T) {
+	msgs := [][]byte{[]byte("10000000"), []byte("20000000"), []byte("30000000")}
+
+	testCases := []struct {
+		name        string
+		isBuffer    bool
+		capacity    int
+		shouldBlock bool
+		messages    [][]byte
+	}{
+		{
+			name:        "happy path",
+			capacity:    10000,
+			isBuffer:    true,
+			messages:    msgs,
+			shouldBlock: false,
+		},
+		{
+			name:        "capacity is maxed",
+			isBuffer:    true,
+			capacity:    9,
+			messages:    msgs,
+			shouldBlock: true,
+		},
+		{
+			name:        "channel is maxed",
+			isBuffer:    false,
+			capacity:    2,
+			messages:    msgs,
+			shouldBlock: true,
+		},
+		{
+			name:        "channel happy path",
+			isBuffer:    false,
+			capacity:    10000,
+			messages:    msgs,
+			shouldBlock: false,
+		},
+	}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			server, client := NetPipe()
+			defer server.Close()
+			defer client.Close()
+
+			receivedCh := make(chan []byte)
+			errorsCh := make(chan interface{})
+			onReceiveWork := make(chan struct{})
+			onReceive := func(chID byte, msgBytes []byte) {
+				<-onReceiveWork
+				receivedCh <- msgBytes
+			}
+			onError := func(r interface{}) {
+				errorsCh <- r
+			}
+			mconn1 := createMConnectionWithCallbacks(client, onReceive, onError)
+			if tc.isBuffer {
+				mconn1.config.RecvMessageCapacity = tc.capacity
+			} else {
+				mconn1.msgRecvQueue = make(chan ConnMsg, tc.capacity)
+			}
+			err := mconn1.Start()
+			require.Nil(t, err)
+			defer mconn1.Stop() //nolint:errcheck // ignore for tests
+
+			mconn2 := createTestMConnection(server)
+			err = mconn2.Start()
+			require.Nil(t, err)
+			defer mconn2.Stop() //nolint:errcheck // ignore for tests
+
+			msgs := tc.messages
+
+			for _, msg := range msgs {
+				assert.True(t, mconn2.Send(0x01, msg))
+			}
+		MSG_LOOP:
+			for _, msg := range msgs {
+				select {
+				case receivedBytes := <-receivedCh:
+					log.TestingLogger().Info(string(receivedBytes))
+					t.Fatalf("This should not have been reached")
+				case err := <-errorsCh:
+					if !tc.shouldBlock {
+						t.Fatalf("Expected %s, got %+v", msg, err)
+					}
+					break MSG_LOOP
+
+				case <-time.After(100 * time.Millisecond):
+					log.TestingLogger().Info("TestMConnectionReceive2 timeout")
+					onReceiveWork <- struct{}{}
+				}
+				receivedBytes := <-receivedCh
+				assert.Equal(t, msg, receivedBytes)
+			}
+		})
+	}
+}
+
 type stopper interface {
 	Stop() error
 }

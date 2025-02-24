@@ -81,8 +81,10 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           CRASHERS: ${{ needs.fuzz-nightly-test.outputs.crashers-count }}
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SLACK_CHANNEL: ops-engineering
+          SLACK_USERNAME: CometBFT Tests
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ secrets.SLACK_WEBHOOK }}
           webhook-type: incoming-webhook
           payload: |
             blocks:

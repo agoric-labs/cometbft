@@ -10,9 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/orderedcode"
-
 	dbm "github.com/cometbft/cometbft-db"
+	"github.com/google/orderedcode"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/pubsub/query"

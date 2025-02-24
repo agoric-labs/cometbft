@@ -28,6 +28,8 @@ linters:
     - unused
 
 issues:
+  exclude-files:
+    - "libs/pubsub/query/query.peg.go"
   exclude-rules:
     - path: _test\.go
       linters:

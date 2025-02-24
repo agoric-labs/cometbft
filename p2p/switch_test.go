@@ -27,9 +27,7 @@ import (
 	p2pproto "github.com/cometbft/cometbft/proto/tendermint/p2p"
 )
 
-var (
-	cfg *config.P2PConfig
-)
+var cfg *config.P2PConfig
 
 func init() {
 	cfg = config.DefaultP2PConfig()
@@ -81,6 +79,24 @@ func (tr *TestReactor) ReceiveEnvelope(e Envelope) {
 	}
 }
 
+func (tr *TestReactor) Receive(chID byte, peer Peer, msgBytes []byte) {
+	msg := &p2pproto.Message{}
+	err := proto.Unmarshal(msgBytes, msg)
+	if err != nil {
+		panic(err)
+	}
+	um, err := msg.Unwrap()
+	if err != nil {
+		panic(err)
+	}
+
+	tr.ReceiveEnvelope(Envelope{
+		ChannelID: chID,
+		Src:       peer,
+		Message:   um,
+	})
+}
+
 func (tr *TestReactor) getMsgs(chID byte) []PeerMessage {
 	tr.mtx.Lock()
 	defer tr.mtx.Unlock()
@@ -100,7 +116,8 @@ func MakeSwitchPair(t testing.TB, initSwitch func(int, *Switch) *Switch) (*Switc
 func initSwitchFunc(i int, sw *Switch) *Switch {
 	sw.SetAddrBook(&AddrBookMock{
 		Addrs:    make(map[string]struct{}),
-		OurAddrs: make(map[string]struct{})})
+		OurAddrs: make(map[string]struct{}),
+	})
 
 	// Make two reactors of two channels each
 	sw.AddReactor("foo", NewTestReactor([]*conn.ChannelDescriptor{
@@ -705,9 +722,11 @@ func (et errorTransport) NetAddress() NetAddress {
 func (et errorTransport) Accept(c peerConfig) (Peer, error) {
 	return nil, et.acceptErr
 }
+
 func (errorTransport) Dial(NetAddress, peerConfig) (Peer, error) {
 	panic("not implemented")
 }
+
 func (errorTransport) Cleanup(Peer) {
 	panic("not implemented")
 }

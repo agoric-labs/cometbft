@@ -16,7 +16,7 @@ import (
 	"github.com/cometbft/cometbft/version"
 )
 
-// database keys
+// database key
 var (
 	stateKey = []byte("stateKey")
 )
@@ -81,7 +81,6 @@ type State struct {
 
 // Copy makes a copy of the State for mutating.
 func (state State) Copy() State {
-
 	return State{
 		Version:       state.Version,
 		ChainID:       state.ChainID,

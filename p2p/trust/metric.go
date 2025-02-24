@@ -28,7 +28,7 @@ type MetricHistoryJSON struct {
 }
 
 // Metric - keeps track of peer reliability
-// See tendermint/docs/architecture/adr-006-trust-metric.md for details
+// See cometbft/docs/architecture/adr-006-trust-metric.md for details
 type Metric struct {
 	service.BaseService
 

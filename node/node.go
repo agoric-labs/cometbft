@@ -852,6 +852,7 @@ func NewNode(config *cfg.Config,
 		metricsProvider, logger, options...)
 }
 
+// NewNodeWithContext is cancellable version of NewNode.
 func NewNodeWithContext(ctx context.Context,
 	config *cfg.Config,
 	privValidator types.PrivValidator,
@@ -863,7 +864,6 @@ func NewNodeWithContext(ctx context.Context,
 	logger log.Logger,
 	options ...Option,
 ) (*Node, error) {
-
 	blockStore, stateDB, err := initDBs(config, dbProvider)
 	if err != nil {
 		return nil, err

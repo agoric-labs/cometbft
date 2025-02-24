@@ -165,6 +165,7 @@ ifeq (,$(shell which clang-format))
 endif
 .PHONY: check-proto-format-deps
 
+#? proto-gen: Generate protobuf files
 proto-gen: check-proto-deps
 	@echo "Generating Protobuf files"
 	@go run github.com/bufbuild/buf/cmd/buf@latest generate

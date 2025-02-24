@@ -132,6 +132,15 @@ func (app *Application) DeliverTx(req types.RequestDeliverTx) types.ResponseDeli
 				{Key: "noindex_key", Value: "index is working", Index: false},
 			},
 		},
+		{
+			Type: "app",
+			Attributes: []types.EventAttribute{
+				{Key: "creator", Value: "Cosmoshi", Index: true},
+				{Key: "key", Value: value, Index: true},
+				{Key: "index_key", Value: "index is working", Index: true},
+				{Key: "noindex_key", Value: "index is working", Index: false},
+			},
+		},
 	}
 
 	return types.ResponseDeliverTx{Code: code.CodeTypeOK, Events: events}

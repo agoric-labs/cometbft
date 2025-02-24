@@ -156,6 +156,10 @@ func TestPart_ValidateBasic(t *testing.T) {
 			pt.Index = 1
 			pt.Proof.Index = 0
 		}, true},
+		{"Index mismatch", func(pt *Part) {
+			pt.Index = 1
+			pt.Proof.Index = 0
+		}, true},
 	}
 
 	for _, tc := range testCases {
@@ -177,8 +181,10 @@ func TestParSetHeaderProtoBuf(t *testing.T) {
 		expPass bool
 	}{
 		{"success empty", &PartSetHeader{}, true},
-		{"success",
-			&PartSetHeader{Total: 1, Hash: []byte("hash")}, true},
+		{
+			"success",
+			&PartSetHeader{Total: 1, Hash: []byte("hash")}, true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -194,7 +200,6 @@ func TestParSetHeaderProtoBuf(t *testing.T) {
 }
 
 func TestPartProtoBuf(t *testing.T) {
-
 	proof := merkle.Proof{
 		Total:    1,
 		Index:    1,

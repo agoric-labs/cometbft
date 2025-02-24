@@ -43,6 +43,16 @@ type Reactor interface {
 	ReceiveEnvelope(Envelope)
 }
 
+type EnvelopeReceiver interface {
+	// ReceiveEnvelope is called by the switch when an envelope is received from any connected
+	// peer on any of the channels registered by the reactor.
+	//
+	// Only one of Receive or ReceiveEnvelope are called per message. If ReceiveEnvelope
+	// is implemented, it will be used, otherwise the switch will fallback to
+	// using Receive. Receive will be replaced by ReceiveEnvelope in a future version
+	ReceiveEnvelope(Envelope)
+}
+
 //--------------------------------------
 
 type BaseReactor struct {
