@@ -318,7 +318,7 @@ gossip.
 - `[p2p]` Remove unused UPnP functionality
   ([\#1113](https://github.com/cometbft/cometbft/issues/1113))
 
-## v0.34.27
+### BUG FIXES
 
 - `[state/indexer]` Respect both height params while querying for events
    ([\#1529](https://github.com/cometbft/cometbft/pull/1529))
