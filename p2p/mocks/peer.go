@@ -298,10 +298,6 @@ func (_m *Peer) SendEnvelope(_a0 p2p.Envelope) bool {
 		panic("no return value specified for SendEnvelope")
 	}
 
-	if len(ret) == 0 {
-		panic("no return value specified for Send")
-	}
-
 	var r0 bool
 	if rf, ok := ret.Get(0).(func(p2p.Envelope) bool); ok {
 		r0 = rf(_a0)
@@ -425,10 +421,6 @@ func (_m *Peer) TrySendEnvelope(_a0 p2p.Envelope) bool {
 
 	if len(ret) == 0 {
 		panic("no return value specified for TrySendEnvelope")
-	}
-
-	if len(ret) == 0 {
-		panic("no return value specified for TrySend")
 	}
 
 	var r0 bool
