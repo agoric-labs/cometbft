@@ -1,3 +1,6 @@
+# [AGORIC] Need this to download the "latest" Docker image of this minor version.
+DOCKER_LATEST_TAG := v0.37.x
+
 all: docker generator runner
 
 docker:
@@ -5,6 +8,8 @@ docker:
 	@docker build \
 		--tag cometbft/e2e-node:local-version \
 		-f docker/Dockerfile ../..
+	docker pull cometbft/e2e-node:$(DOCKER_LATEST_TAG)
+	docker tag cometbft/e2e-node:$(DOCKER_LATEST_TAG) cometbft/e2e-node:latest
 
 # We need to build support for database backends into the app in
 # order to build a binary with a CometBFT node in it (for built-in
