@@ -39,10 +39,6 @@ issues:
 linters-settings:
   dogsled:
     max-blank-identifiers: 3
-  golint:
-    min-confidence: 0
-  maligned:
-    suggest-new: true
   misspell:
     locale: US
     ignore-words:
