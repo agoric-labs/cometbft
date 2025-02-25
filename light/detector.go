@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tendermint/tendermint/light/provider"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/light/provider"
+	"github.com/cometbft/cometbft/types"
 )
 
 // The detector component of the light client detects and handles attacks on the light client.
@@ -26,7 +26,7 @@ import (
 // If there are no conflictinge headers, the light client deems the verified target header
 // trusted and saves it to the trusted store.
 func (c *Client) detectDivergence(ctx context.Context, primaryTrace []*types.LightBlock, now time.Time) error {
-	if primaryTrace == nil || len(primaryTrace) < 2 {
+	if len(primaryTrace) < 2 {
 		return errors.New("nil or single block primary trace")
 	}
 	var (

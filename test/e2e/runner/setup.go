@@ -10,20 +10,19 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/p2p"
-	"github.com/tendermint/tendermint/privval"
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/test/e2e/pkg/infra"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	"github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/privval"
+	e2e "github.com/cometbft/cometbft/test/e2e/pkg"
+	"github.com/cometbft/cometbft/test/e2e/pkg/infra"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -84,8 +83,7 @@ func Setup(testnet *e2e.Testnet, infp infra.Provider) error {
 		if err != nil {
 			return err
 		}
-		//nolint:gosec // G306: Expect WriteFile permissions to be 0600 or less
-		err = os.WriteFile(filepath.Join(nodeDir, "config", "app.toml"), appCfg, 0o644)
+		err = os.WriteFile(filepath.Join(nodeDir, "config", "app.toml"), appCfg, 0o644) //nolint:gosec
 		if err != nil {
 			return err
 		}
@@ -118,6 +116,12 @@ func Setup(testnet *e2e.Testnet, infp infra.Provider) error {
 		)).Save()
 	}
 
+	if testnet.Prometheus {
+		if err := testnet.WritePrometheusConfig(); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -130,7 +134,7 @@ func MakeGenesis(testnet *e2e.Testnet) (types.GenesisDoc, error) {
 		InitialHeight:   testnet.InitialHeight,
 	}
 	// set the app version to 1
-	genesis.ConsensusParams.Version.AppVersion = 1
+	genesis.ConsensusParams.Version.App = 1
 	for validator, power := range testnet.Validators {
 		genesis.Validators = append(genesis.Validators, types.GenesisValidator{
 			Name:    validator.Name,
@@ -216,10 +220,10 @@ func MakeConfig(node *e2e.Node) (*config.Config, error) {
 		cfg.Mempool.Version = node.Mempool
 	}
 
-	if node.FastSync == "" {
-		cfg.FastSyncMode = false
+	if node.BlockSync == "" {
+		cfg.BlockSyncMode = false
 	} else {
-		cfg.FastSync.Version = node.FastSync
+		cfg.BlockSync.Version = node.BlockSync
 	}
 
 	if node.StateSync {
@@ -261,16 +265,19 @@ func MakeConfig(node *e2e.Node) (*config.Config, error) {
 // MakeAppConfig generates an ABCI application config for a node.
 func MakeAppConfig(node *e2e.Node) ([]byte, error) {
 	cfg := map[string]interface{}{
-		"chain_id":          node.Testnet.Name,
-		"dir":               "data/app",
-		"listen":            AppAddressUNIX,
-		"mode":              node.Mode,
-		"proxy_port":        node.ProxyPort,
-		"protocol":          "socket",
-		"persist_interval":  node.PersistInterval,
-		"snapshot_interval": node.SnapshotInterval,
-		"retain_blocks":     node.RetainBlocks,
-		"key_type":          node.PrivvalKey.Type(),
+		"chain_id":               node.Testnet.Name,
+		"dir":                    "data/app",
+		"listen":                 AppAddressUNIX,
+		"mode":                   node.Mode,
+		"proxy_port":             node.ProxyPort,
+		"protocol":               "socket",
+		"persist_interval":       node.PersistInterval,
+		"snapshot_interval":      node.SnapshotInterval,
+		"retain_blocks":          node.RetainBlocks,
+		"key_type":               node.PrivvalKey.Type(),
+		"prepare_proposal_delay": node.Testnet.PrepareProposalDelay,
+		"process_proposal_delay": node.Testnet.ProcessProposalDelay,
+		"check_tx_delay":         node.Testnet.CheckTxDelay,
 	}
 	switch node.ABCIProtocol {
 	case e2e.ProtocolUNIX:
@@ -301,12 +308,6 @@ func MakeAppConfig(node *e2e.Node) ([]byte, error) {
 			return nil, fmt.Errorf("unexpected privval protocol setting %q", node.PrivvalProtocol)
 		}
 	}
-
-	misbehaviors := make(map[string]string)
-	for height, misbehavior := range node.Misbehaviors {
-		misbehaviors[strconv.Itoa(int(height))] = misbehavior
-	}
-	cfg["misbehaviors"] = misbehaviors
 
 	if len(node.Testnet.ValidatorUpdates) > 0 {
 		validatorUpdates := map[string]map[string]int64{}
@@ -340,6 +341,5 @@ func UpdateConfigStateSync(node *e2e.Node, height int64, hash []byte) error {
 	}
 	bz = regexp.MustCompile(`(?m)^trust_height =.*`).ReplaceAll(bz, []byte(fmt.Sprintf(`trust_height = %v`, height)))
 	bz = regexp.MustCompile(`(?m)^trust_hash =.*`).ReplaceAll(bz, []byte(fmt.Sprintf(`trust_hash = "%X"`, hash)))
-	//nolint:gosec // G306: Expect WriteFile permissions to be 0600 or less
-	return os.WriteFile(cfgPath, bz, 0o644)
+	return os.WriteFile(cfgPath, bz, 0o644) //nolint:gosec
 }

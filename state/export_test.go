@@ -3,10 +3,9 @@ package state
 import (
 	dbm "github.com/cometbft/cometbft-db"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	cmtstate "github.com/tendermint/tendermint/proto/tendermint/state"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	cmtstate "github.com/cometbft/cometbft/proto/tendermint/state"
+	"github.com/cometbft/cometbft/types"
 )
 
 //
@@ -36,7 +35,7 @@ func UpdateState(
 
 // ValidateValidatorUpdates is an alias for validateValidatorUpdates exported
 // from execution.go, exclusively and explicitly for testing.
-func ValidateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params cmtproto.ValidatorParams) error {
+func ValidateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params types.ValidatorParams) error {
 	return validateValidatorUpdates(abciUpdates, params)
 }
 
@@ -45,4 +44,12 @@ func ValidateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params cmtprot
 func SaveValidatorsInfo(db dbm.DB, height, lastHeightChanged int64, valSet *types.ValidatorSet) error {
 	stateStore := dbStore{db, StoreOptions{DiscardABCIResponses: false}}
 	return stateStore.saveValidatorsInfo(height, lastHeightChanged, valSet)
+}
+
+func Int64ToBytes(val int64) []byte {
+	return int64ToBytes(val)
+}
+
+func Int64FromBytes(val []byte) int64 {
+	return int64FromBytes(val)
 }

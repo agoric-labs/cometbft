@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strconv"
 	"text/template"
 
-	e2e "github.com/tendermint/tendermint/test/e2e/pkg"
-	"github.com/tendermint/tendermint/test/e2e/pkg/infra"
+	e2e "github.com/cometbft/cometbft/test/e2e/pkg"
+	"github.com/cometbft/cometbft/test/e2e/pkg/infra"
 )
 
 var _ infra.Provider = &Provider{}
@@ -38,21 +37,7 @@ func (p *Provider) Setup() error {
 // file as bytes to be written out to disk.
 func dockerComposeBytes(testnet *e2e.Testnet) ([]byte, error) {
 	// Must use version 2 Docker Compose format, to support IPv6.
-	tmpl, err := template.New("docker-compose").Funcs(template.FuncMap{
-		"misbehaviorsToString": func(misbehaviors map[int64]string) string {
-			str := ""
-			for height, misbehavior := range misbehaviors {
-				// after the first behavior set, a comma must be prepended
-				if str != "" {
-					str += ","
-				}
-				heightString := strconv.Itoa(int(height))
-				str += misbehavior + "," + heightString
-			}
-			return str
-		},
-	}).Parse(`version: '2.4'
-
+	tmpl, err := template.New("docker-compose").Parse(`version: '2.4'
 networks:
   {{ .Name }}:
     labels:
@@ -73,11 +58,8 @@ services:
       e2e: true
     container_name: {{ .Name }}
     image: {{ .Version }}
-{{- if eq .ABCIProtocol "builtin" }}
+{{- if or (eq .ABCIProtocol "builtin") (eq .ABCIProtocol "builtin_unsync") }}
     entrypoint: /usr/bin/entrypoint-builtin
-{{- else if .Misbehaviors }}
-    entrypoint: /usr/bin/entrypoint-maverick
-    command: ["node", "--misbehaviors", "{{ misbehaviorsToString .Misbehaviors }}"]
 {{- end }}
     init: true
     ports:
@@ -100,11 +82,8 @@ services:
       e2e: true
     container_name: {{ .Name }}_u
     image: {{ $.UpgradeVersion }}
-{{- if eq .ABCIProtocol "builtin" }}
+{{- if or (eq .ABCIProtocol "builtin") (eq .ABCIProtocol "builtin_unsync") }}
     entrypoint: /usr/bin/entrypoint-builtin
-{{- else if .Misbehaviors }}
-    entrypoint: /usr/bin/entrypoint-maverick
-    command: ["node", "--misbehaviors", "{{ misbehaviorsToString .Misbehaviors }}"]
 {{- end }}
     init: true
     ports:

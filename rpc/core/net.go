@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tendermint/tendermint/p2p"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-	rpctypes "github.com/tendermint/tendermint/rpc/jsonrpc/types"
+	"github.com/cometbft/cometbft/p2p"
+	ctypes "github.com/cometbft/cometbft/rpc/core/types"
+	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
 )
 
 // NetInfo returns network info.
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/net_info
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/net_info
 func NetInfo(ctx *rpctypes.Context) (*ctypes.ResultNetInfo, error) {
 	peersList := env.P2PPeers.Peers().List()
 	peers := make([]ctypes.Peer, 0, len(peersList))
@@ -53,7 +53,8 @@ func UnsafeDialSeeds(ctx *rpctypes.Context, seeds []string) (*ctypes.ResultDialS
 // UnsafeDialPeers dials the given peers (comma-separated id@IP:PORT),
 // optionally making them persistent.
 func UnsafeDialPeers(ctx *rpctypes.Context, peers []string, persistent, unconditional, private bool) (
-	*ctypes.ResultDialPeers, error) {
+	*ctypes.ResultDialPeers, error,
+) {
 	if len(peers) == 0 {
 		return &ctypes.ResultDialPeers{}, errors.New("no peers provided")
 	}
@@ -92,7 +93,7 @@ func UnsafeDialPeers(ctx *rpctypes.Context, peers []string, persistent, uncondit
 }
 
 // Genesis returns genesis file.
-// More: https://docs.cometbft.com/v0.34/rpc/#/Info/genesis
+// More: https://docs.cometbft.com/v0.37/rpc/#/Info/genesis
 func Genesis(ctx *rpctypes.Context) (*ctypes.ResultGenesis, error) {
 	if len(env.genChunks) > 1 {
 		return nil, errors.New("genesis response is large, please use the genesis_chunked API instead")

@@ -1,7 +1,8 @@
-## Description
+<!--
 
-_Please add a description of the changes that this PR introduces and the files that
-are the most critical to review._ 
+Please add a reference to the issue that this PR addresses and indicate which
+files are most critical to review. If it fully addresses a particular issue,
+please include "Closes #XXX" (where "XXX" is the issue number).
 
 If this PR is non-trivial/large/complex, please ensure that you have either
 created an issue that the team's had a chance to respond to, or had some
@@ -25,7 +26,6 @@ https://github.com/orgs/cometbft/projects/1
 #### PR checklist
 
 - [ ] Tests written/updated
-- [ ] Changelog entry added in `.changelog` (we use
-  [unclog](https://github.com/informalsystems/unclog) to manage our changelog)
+- [ ] Changelog entry added in `.changelog` (we use [unclog](https://github.com/informalsystems/unclog) to manage our changelog)
 - [ ] Updated relevant documentation (`docs/` or `spec/`) and code comments
 

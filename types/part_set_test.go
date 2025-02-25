@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/cometbft/cometbft/crypto/merkle"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
 )
 
 const (
@@ -125,7 +125,7 @@ func TestPartSetHeaderValidateBasic(t *testing.T) {
 	}
 }
 
-func TestPartValidateBasic(t *testing.T) {
+func TestPart_ValidateBasic(t *testing.T) {
 	testCases := []struct {
 		testName     string
 		malleatePart func(*Part)
@@ -150,6 +150,11 @@ func TestPartValidateBasic(t *testing.T) {
 				Index:    1,
 				LeafHash: make([]byte, 1024*1024),
 			}
+			pt.Index = 1
+		}, true},
+		{"Index mismatch", func(pt *Part) {
+			pt.Index = 1
+			pt.Proof.Index = 0
 		}, true},
 		{"Index mismatch", func(pt *Part) {
 			pt.Index = 1
@@ -207,10 +212,8 @@ func TestPartProtoBuf(t *testing.T) {
 	}{
 		{"failure empty", &Part{}, false},
 		{"failure nil", nil, false},
-		{
-			"success",
-			&Part{Index: 1, Bytes: cmtrand.Bytes(32), Proof: proof}, true,
-		},
+		{"success",
+			&Part{Index: 1, Bytes: cmtrand.Bytes(32), Proof: proof}, true},
 	}
 
 	for _, tc := range testCases {

@@ -6,17 +6,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/libs/bits"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
-	"github.com/tendermint/tendermint/p2p"
-	cmtcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/crypto/merkle"
+	"github.com/cometbft/cometbft/libs/bits"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	"github.com/cometbft/cometbft/p2p"
+	cmtcons "github.com/cometbft/cometbft/proto/tendermint/consensus"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 func TestMsgToProto(t *testing.T) {
@@ -71,7 +71,7 @@ func TestMsgToProto(t *testing.T) {
 	testsCases := []struct {
 		testName string
 		msg      Message
-		want     *cmtcons.Message
+		want     proto.Message
 		wantErr  bool
 	}{
 		{"successful NewRoundStepMessage", &NewRoundStepMessage{
@@ -80,13 +80,13 @@ func TestMsgToProto(t *testing.T) {
 			Step:                  1,
 			SecondsSinceStartTime: 1,
 			LastCommitRound:       2,
-		}, (&cmtcons.NewRoundStep{
+		}, &cmtcons.NewRoundStep{
 			Height:                2,
 			Round:                 1,
 			Step:                  1,
 			SecondsSinceStartTime: 1,
 			LastCommitRound:       2,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 
@@ -96,48 +96,48 @@ func TestMsgToProto(t *testing.T) {
 			BlockPartSetHeader: psh,
 			BlockParts:         bits,
 			IsCommit:           false,
-		}, (&cmtcons.NewValidBlock{
+		}, &cmtcons.NewValidBlock{
 			Height:             1,
 			Round:              1,
 			BlockPartSetHeader: pbPsh,
 			BlockParts:         pbBits,
 			IsCommit:           false,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 		{"successful BlockPartMessage", &BlockPartMessage{
 			Height: 100,
 			Round:  1,
 			Part:   &parts,
-		}, (&cmtcons.BlockPart{
+		}, &cmtcons.BlockPart{
 			Height: 100,
 			Round:  1,
 			Part:   *pbParts,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 		{"successful ProposalPOLMessage", &ProposalPOLMessage{
 			Height:           1,
 			ProposalPOLRound: 1,
 			ProposalPOL:      bits,
-		}, (&cmtcons.ProposalPOL{
+		}, &cmtcons.ProposalPOL{
 			Height:           1,
 			ProposalPolRound: 1,
 			ProposalPol:      *pbBits,
-		}).Wrap().(*cmtcons.Message),
+		},
 			false},
 		{"successful ProposalMessage", &ProposalMessage{
 			Proposal: &proposal,
-		}, (&cmtcons.Proposal{
+		}, &cmtcons.Proposal{
 			Proposal: *pbProposal,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 		{"successful VoteMessage", &VoteMessage{
 			Vote: vote,
-		}, (&cmtcons.Vote{
+		}, &cmtcons.Vote{
 			Vote: pbVote,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 		{"successful VoteSetMaj23", &VoteSetMaj23Message{
@@ -145,12 +145,12 @@ func TestMsgToProto(t *testing.T) {
 			Round:   1,
 			Type:    1,
 			BlockID: bi,
-		}, (&cmtcons.VoteSetMaj23{
+		}, &cmtcons.VoteSetMaj23{
 			Height:  1,
 			Round:   1,
 			Type:    1,
 			BlockID: pbBi,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 		{"successful VoteSetBits", &VoteSetBitsMessage{
@@ -159,13 +159,13 @@ func TestMsgToProto(t *testing.T) {
 			Type:    1,
 			BlockID: bi,
 			Votes:   bits,
-		}, (&cmtcons.VoteSetBits{
+		}, &cmtcons.VoteSetBits{
 			Height:  1,
 			Round:   1,
 			Type:    1,
 			BlockID: pbBi,
 			Votes:   *pbBits,
-		}).Wrap().(*cmtcons.Message),
+		},
 
 			false},
 		{"failure", nil, &cmtcons.Message{}, true},

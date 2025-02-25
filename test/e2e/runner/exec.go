@@ -14,8 +14,7 @@ func exec(args ...string) error {
 }
 
 func execOutput(args ...string) ([]byte, error) {
-	//nolint:gosec // G204: Subprocess launched with a potential tainted input or cmd arguments
-	cmd := osexec.Command(args[0], args[1:]...)
+	cmd := osexec.Command(args[0], args[1:]...) //nolint:gosec
 	out, err := cmd.CombinedOutput()
 	switch err := err.(type) {
 	case nil:
@@ -29,8 +28,7 @@ func execOutput(args ...string) ([]byte, error) {
 
 // execVerbose executes a shell command while displaying its output.
 func execVerbose(args ...string) error {
-	//nolint:gosec // G204: Subprocess launched with a potential tainted input or cmd arguments
-	cmd := osexec.Command(args[0], args[1:]...)
+	cmd := osexec.Command(args[0], args[1:]...) //nolint:gosec
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

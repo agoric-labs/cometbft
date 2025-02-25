@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -12,35 +11,35 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	dbm "github.com/cometbft/cometbft-db"
 
-	abcicli "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	abci "github.com/tendermint/tendermint/abci/types"
-	cfg "github.com/tendermint/tendermint/config"
-	cstypes "github.com/tendermint/tendermint/consensus/types"
-	cryptoenc "github.com/tendermint/tendermint/crypto/encoding"
-	"github.com/tendermint/tendermint/crypto/tmhash"
-	"github.com/tendermint/tendermint/libs/bits"
-	"github.com/tendermint/tendermint/libs/bytes"
-	"github.com/tendermint/tendermint/libs/log"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	mempl "github.com/tendermint/tendermint/mempool"
-	mempoolv0 "github.com/tendermint/tendermint/mempool/v0"
-	mempoolv1 "github.com/tendermint/tendermint/mempool/v1"
-	"github.com/tendermint/tendermint/p2p"
-	p2pmock "github.com/tendermint/tendermint/p2p/mock"
-	cmtcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	sm "github.com/tendermint/tendermint/state"
-	statemocks "github.com/tendermint/tendermint/state/mocks"
-	"github.com/tendermint/tendermint/store"
-	"github.com/tendermint/tendermint/types"
+	abcicli "github.com/cometbft/cometbft/abci/client"
+	"github.com/cometbft/cometbft/abci/example/kvstore"
+	abci "github.com/cometbft/cometbft/abci/types"
+	cfg "github.com/cometbft/cometbft/config"
+	cstypes "github.com/cometbft/cometbft/consensus/types"
+	cryptoenc "github.com/cometbft/cometbft/crypto/encoding"
+	"github.com/cometbft/cometbft/crypto/tmhash"
+	"github.com/cometbft/cometbft/libs/bits"
+	"github.com/cometbft/cometbft/libs/bytes"
+	"github.com/cometbft/cometbft/libs/json"
+	"github.com/cometbft/cometbft/libs/log"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	mempl "github.com/cometbft/cometbft/mempool"
+	mempoolv0 "github.com/cometbft/cometbft/mempool/v0"
+	mempoolv1 "github.com/cometbft/cometbft/mempool/v1" //nolint:staticcheck // SA1019 Priority mempool deprecated but still supported in this release.
+	"github.com/cometbft/cometbft/p2p"
+	p2pmock "github.com/cometbft/cometbft/p2p/mock"
+	cmtcons "github.com/cometbft/cometbft/proto/tendermint/consensus"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	sm "github.com/cometbft/cometbft/state"
+	statemocks "github.com/cometbft/cometbft/state/mocks"
+	"github.com/cometbft/cometbft/store"
+	"github.com/cometbft/cometbft/types"
 )
 
 //----------------------------------------------
@@ -74,7 +73,6 @@ func startConsensusNet(t *testing.T, css []*State, n int) (
 			if err := css[i].blockExec.Store().Save(css[i].state); err != nil {
 				t.Error(err)
 			}
-
 		}
 	}
 	// make connected switches and start all reactors
@@ -115,7 +113,7 @@ func stopConsensusNet(logger log.Logger, reactors []*Reactor, eventBuses []*type
 // Ensure a testnet makes blocks
 func TestReactorBasic(t *testing.T) {
 	N := 4
-	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter)
+	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newKVStore)
 	defer cleanup()
 	reactors, blocksSubs, eventBuses := startConsensusNet(t, css, N)
 	defer stopConsensusNet(log.TestingLogger(), reactors, eventBuses)
@@ -130,11 +128,11 @@ func TestReactorWithEvidence(t *testing.T) {
 	nValidators := 4
 	testName := "consensus_reactor_test"
 	tickerFunc := newMockTickerFunc(true)
-	appFunc := newCounter
+	appFunc := newKVStore
 
 	// heed the advice from https://www.sandimetz.com/blog/2016/1/20/the-wrong-abstraction
 	// to unroll unwieldy abstractions. Here we duplicate the code from:
-	// css := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter)
+	// css := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newKVStore)
 
 	genDoc, privVals := randGenesisDoc(nValidators, false, 30)
 	css := make([]*State, nValidators)
@@ -147,7 +145,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		state, _ := stateStore.LoadFromDBOrGenesisDoc(genDoc)
 		thisConfig := ResetConfig(fmt.Sprintf("%s_%d", testName, i))
 		defer os.RemoveAll(thisConfig.RootDir)
-		ensureDir(path.Dir(thisConfig.Consensus.WalFile()), 0700) // dir for wal
+		ensureDir(path.Dir(thisConfig.Consensus.WalFile()), 0o700) // dir for wal
 		app := appFunc()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		app.InitChain(abci.RequestInitChain{Validators: vals})
@@ -193,11 +191,13 @@ func TestReactorWithEvidence(t *testing.T) {
 		// mock the evidence pool
 		// everyone includes evidence of another double signing
 		vIdx := (i + 1) % nValidators
-		ev := types.NewMockDuplicateVoteEvidenceWithValidator(1, defaultTestTime, privVals[vIdx], config.ChainID())
+		ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(1, defaultTestTime, privVals[vIdx], config.ChainID())
+		require.NoError(t, err)
 		evpool := &statemocks.EvidencePool{}
 		evpool.On("CheckEvidence", mock.AnythingOfType("types.EvidenceList")).Return(nil)
 		evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return([]types.Evidence{
-			ev}, int64(len(ev.Bytes())))
+			ev,
+		}, int64(len(ev.Bytes())))
 		evpool.On("Update", mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 
 		evpool2 := sm.EmptyEvidencePool{}
@@ -210,7 +210,7 @@ func TestReactorWithEvidence(t *testing.T) {
 
 		eventBus := types.NewEventBus()
 		eventBus.SetLogger(log.TestingLogger().With("module", "events"))
-		err := eventBus.Start()
+		err = eventBus.Start()
 		require.NoError(t, err)
 		cs.SetEventBus(eventBus)
 
@@ -238,7 +238,7 @@ func TestReactorWithEvidence(t *testing.T) {
 // Ensure a testnet makes blocks when there are txs
 func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	N := 4
-	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter,
+	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newKVStore,
 		func(c *cfg.Config) {
 			c.Consensus.CreateEmptyBlocks = false
 		})
@@ -257,9 +257,9 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	}, css)
 }
 
-func TestLegacyReactorReceiveBasicIfAddPeerHasntBeenCalledYet(t *testing.T) {
+func TestReactorReceiveDoesNotPanicIfAddPeerHasntBeenCalledYet(t *testing.T) {
 	N := 1
-	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter)
+	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newKVStore)
 	defer cleanup()
 	reactors, _, eventBuses := startConsensusNet(t, css, N)
 	defer stopConsensusNet(log.TestingLogger(), reactors, eventBuses)
@@ -283,38 +283,9 @@ func TestLegacyReactorReceiveBasicIfAddPeerHasntBeenCalledYet(t *testing.T) {
 	})
 }
 
-func TestLegacyReactorReceiveBasic(t *testing.T) {
-	N := 1
-	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter)
-	defer cleanup()
-	reactors, _, eventBuses := startConsensusNet(t, css, N)
-	defer stopConsensusNet(log.TestingLogger(), reactors, eventBuses)
-
-	var (
-		reactor = reactors[0]
-		peer    = p2pmock.NewPeer(nil)
-	)
-
-	reactor.InitPeer(peer)
-	v := &cmtcons.HasVote{
-		Height: 1,
-		Round:  1,
-		Index:  1,
-		Type:   cmtproto.PrevoteType,
-	}
-	w := v.Wrap()
-	msg, err := proto.Marshal(w)
-	assert.NoError(t, err)
-
-	assert.NotPanics(t, func() {
-		reactor.Receive(StateChannel, peer, msg)
-		reactor.AddPeer(peer)
-	})
-}
-
 func TestReactorReceivePanicsIfInitPeerHasntBeenCalledYet(t *testing.T) {
 	N := 1
-	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter)
+	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newKVStore)
 	defer cleanup()
 	reactors, _, eventBuses := startConsensusNet(t, css, N)
 	defer stopConsensusNet(log.TestingLogger(), reactors, eventBuses)
@@ -340,7 +311,7 @@ func TestReactorReceivePanicsIfInitPeerHasntBeenCalledYet(t *testing.T) {
 // Test we record stats about votes and block parts from other peers.
 func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 	N := 4
-	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newCounter)
+	css, cleanup := randConsensusNet(N, "consensus_reactor_test", newMockTickerFunc(true), newKVStore)
 	defer cleanup()
 	reactors, blocksSubs, eventBuses := startConsensusNet(t, css, N)
 	defer stopConsensusNet(log.TestingLogger(), reactors, eventBuses)
@@ -561,7 +532,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 // Check we can make blocks with skip_timeout_commit=false
 func TestReactorWithTimeoutCommit(t *testing.T) {
 	N := 4
-	css, cleanup := randConsensusNet(N, "consensus_reactor_with_timeout_commit_test", newMockTickerFunc(false), newCounter)
+	css, cleanup := randConsensusNet(N, "consensus_reactor_with_timeout_commit_test", newMockTickerFunc(false), newKVStore)
 	defer cleanup()
 	// override default SkipTimeoutCommit == true for tests
 	for i := 0; i < N; i++ {
@@ -630,7 +601,6 @@ func waitForAndValidateBlockWithTx(
 				break BLOCK_TX_LOOP
 			}
 		}
-
 	}, css)
 }
 
@@ -642,7 +612,6 @@ func waitForBlockWithUpdatedValsAndValidateIt(
 	css []*State,
 ) {
 	timeoutWaitGroup(t, n, func(j int) {
-
 		var newBlock *types.Block
 	LOOP:
 		for {
@@ -652,12 +621,11 @@ func waitForBlockWithUpdatedValsAndValidateIt(
 			if newBlock.LastCommit.Size() == len(updatedVals) {
 				css[j].Logger.Debug("waitForBlockWithUpdatedValsAndValidateIt: Got block", "height", newBlock.Height)
 				break LOOP
-			} else {
-				css[j].Logger.Debug(
-					"waitForBlockWithUpdatedValsAndValidateIt: Got block with no new validators. Skipping",
-					"height",
-					newBlock.Height)
 			}
+			css[j].Logger.Debug(
+				"waitForBlockWithUpdatedValsAndValidateIt: Got block with no new validators. Skipping",
+				"height",
+				newBlock.Height)
 		}
 
 		err := validateBlock(newBlock, updatedVals)
@@ -729,7 +697,7 @@ func capture() {
 // Ensure basic validation of structs is functioning
 
 func TestNewRoundStepMessageValidateBasic(t *testing.T) {
-	testCases := []struct {
+	testCases := []struct { //nolint: maligned
 		expectErr              bool
 		messageRound           int32
 		messageLastCommitRound int32
@@ -856,8 +824,10 @@ func TestProposalPOLMessageValidateBasic(t *testing.T) {
 		{func(msg *ProposalPOLMessage) { msg.Height = -1 }, "negative Height"},
 		{func(msg *ProposalPOLMessage) { msg.ProposalPOLRound = -1 }, "negative ProposalPOLRound"},
 		{func(msg *ProposalPOLMessage) { msg.ProposalPOL = bits.NewBitArray(0) }, "empty ProposalPOL bit array"},
-		{func(msg *ProposalPOLMessage) { msg.ProposalPOL = bits.NewBitArray(types.MaxVotesCount + 1) },
-			"proposalPOL bit array is too big: 10001, max: 10000"},
+		{
+			func(msg *ProposalPOLMessage) { msg.ProposalPOL = bits.NewBitArray(types.MaxVotesCount + 1) },
+			"proposalPOL bit array is too big: 10001, max: 10000",
+		},
 	}
 
 	for i, tc := range testCases {
@@ -1010,8 +980,10 @@ func TestVoteSetBitsMessageValidateBasic(t *testing.T) {
 				},
 			}
 		}, "wrong BlockID: wrong PartSetHeader: wrong Hash:"},
-		{func(msg *VoteSetBitsMessage) { msg.Votes = bits.NewBitArray(types.MaxVotesCount + 1) },
-			"votes bit array is too big: 10001, max: 10000"},
+		{
+			func(msg *VoteSetBitsMessage) { msg.Votes = bits.NewBitArray(types.MaxVotesCount + 1) },
+			"votes bit array is too big: 10001, max: 10000",
+		},
 	}
 
 	for i, tc := range testCases {

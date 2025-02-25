@@ -7,14 +7,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
-	cmtstate "github.com/tendermint/tendermint/proto/tendermint/state"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	cmtversion "github.com/tendermint/tendermint/proto/tendermint/version"
-	"github.com/tendermint/tendermint/types"
-	cmttime "github.com/tendermint/tendermint/types/time"
-	"github.com/tendermint/tendermint/version"
+	cmtstate "github.com/cometbft/cometbft/proto/tendermint/state"
+	cmtversion "github.com/cometbft/cometbft/proto/tendermint/version"
+	"github.com/cometbft/cometbft/types"
+	cmttime "github.com/cometbft/cometbft/types/time"
+	"github.com/cometbft/cometbft/version"
 )
 
 // database key
@@ -70,7 +69,7 @@ type State struct {
 
 	// Consensus parameters used for validating blocks.
 	// Changes returned by EndBlock and updated after Commit.
-	ConsensusParams                  cmtproto.ConsensusParams
+	ConsensusParams                  types.ConsensusParams
 	LastHeightConsensusParamsChanged int64
 
 	// Merkle root of the results from executing prev block
@@ -166,7 +165,7 @@ func (state *State) ToProto() (*cmtstate.State, error) {
 	}
 
 	sm.LastHeightValidatorsChanged = state.LastHeightValidatorsChanged
-	sm.ConsensusParams = state.ConsensusParams
+	sm.ConsensusParams = state.ConsensusParams.ToProto()
 	sm.LastHeightConsensusParamsChanged = state.LastHeightConsensusParamsChanged
 	sm.LastResultsHash = state.LastResultsHash
 	sm.AppHash = state.AppHash
@@ -217,7 +216,7 @@ func FromProto(pb *cmtstate.State) (*State, error) { //nolint:golint
 	}
 
 	state.LastHeightValidatorsChanged = pb.LastHeightValidatorsChanged
-	state.ConsensusParams = pb.ConsensusParams
+	state.ConsensusParams = types.ConsensusParamsFromProto(pb.ConsensusParams)
 	state.LastHeightConsensusParamsChanged = pb.LastHeightConsensusParamsChanged
 	state.LastResultsHash = pb.LastResultsHash
 	state.AppHash = pb.AppHash
@@ -234,19 +233,20 @@ func FromProto(pb *cmtstate.State) (*State, error) { //nolint:golint
 func (state State) MakeBlock(
 	height int64,
 	txs []types.Tx,
-	commit *types.Commit,
+	lastCommit *types.Commit,
 	evidence []types.Evidence,
 	proposerAddress []byte,
-) (*types.Block, *types.PartSet) {
+) *types.Block {
+
 	// Build base block with block data.
-	block := types.MakeBlock(height, txs, commit, evidence)
+	block := types.MakeBlock(height, txs, lastCommit, evidence)
 
 	// Set time.
 	var timestamp time.Time
 	if height == state.InitialHeight {
 		timestamp = state.LastBlockTime // genesis time
 	} else {
-		timestamp = MedianTime(commit, state.LastValidators)
+		timestamp = MedianTime(lastCommit, state.LastValidators)
 	}
 
 	// Fill rest of header with state data.
@@ -254,11 +254,11 @@ func (state State) MakeBlock(
 		state.Version.Consensus, state.ChainID,
 		timestamp, state.LastBlockID,
 		state.Validators.Hash(), state.NextValidators.Hash(),
-		types.HashConsensusParams(state.ConsensusParams), state.AppHash, state.LastResultsHash,
+		state.ConsensusParams.Hash(), state.AppHash, state.LastResultsHash,
 		proposerAddress,
 	)
 
-	return block, block.MakePartSet(types.BlockPartSizeBytes)
+	return block
 }
 
 // MedianTime computes a median time for a given Commit (based on Timestamp field of votes messages) and the

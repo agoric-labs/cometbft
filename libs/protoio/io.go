@@ -33,7 +33,7 @@ package protoio
 import (
 	"io"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 )
 
 type Writer interface {
@@ -96,4 +96,8 @@ func (r *byteReader) ReadByte() (byte, error) {
 		return 0x00, err
 	}
 	return r.buf[0], nil
+}
+
+func (r *byteReader) resetBytesRead() {
+	r.bytesRead = 0
 }

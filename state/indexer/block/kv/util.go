@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/orderedcode"
 
-	"github.com/tendermint/tendermint/libs/pubsub/query"
-	"github.com/tendermint/tendermint/state/indexer"
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/libs/pubsub/query"
+	"github.com/cometbft/cometbft/state/indexer"
+	"github.com/cometbft/cometbft/types"
 )
 
 type HeightInfo struct {
@@ -133,16 +133,6 @@ func parseEventSeqFromEventKey(key []byte) (int64, error) {
 	return eventSeq, nil
 }
 
-func lookForHeight(conditions []query.Condition) (int64, bool, int) {
-	for i, c := range conditions {
-		if c.CompositeKey == types.BlockHeightKey && c.Op == query.OpEqual {
-			return c.Operand.(*big.Int).Int64(), true, i
-		}
-	}
-
-	return 0, false, -1
-}
-
 // Remove all occurrences of height equality queries except one. While we are traversing the conditions, check whether the only condition in
 // addition to match events is the height equality or height range query. At the same time, if we do have a height range condition
 // ignore the height equality condition. If a height equality exists, place the condition index in the query and the desired height
@@ -169,10 +159,8 @@ func dedupHeight(conditions []query.Condition) (dedupConditions []query.Conditio
 				dedupConditions = append(dedupConditions, c)
 			}
 		} else {
-			if c.CompositeKey != types.MatchEventKey {
-				heightInfo.onlyHeightRange = false
-				heightInfo.onlyHeightEq = false
-			}
+			heightInfo.onlyHeightRange = false
+			heightInfo.onlyHeightEq = false
 			dedupConditions = append(dedupConditions, c)
 		}
 	}
@@ -185,28 +173,10 @@ func dedupHeight(conditions []query.Condition) (dedupConditions []query.Conditio
 		// will be removed
 		heightInfo.heightEqIdx = -1
 		heightInfo.height = 0
-		found = false
 		heightInfo.onlyHeightEq = false
+		found = false
 	}
 	return dedupConditions, heightInfo, found
-}
-
-func dedupMatchEvents(conditions []query.Condition) ([]query.Condition, bool) {
-	var dedupConditions []query.Condition
-	matchEvents := false
-	for i, c := range conditions {
-		if c.CompositeKey == types.MatchEventKey {
-			// Match events should be added only via RPC as the very first query condition
-			if i == 0 && c.Op == query.OpEqual && c.Operand.(*big.Int).Int64() == 1 {
-				dedupConditions = append(dedupConditions, c)
-				matchEvents = true
-			}
-		} else {
-			dedupConditions = append(dedupConditions, c)
-		}
-
-	}
-	return dedupConditions, matchEvents
 }
 
 func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) bool {
@@ -220,4 +190,15 @@ func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) bool {
 		}
 	}
 	return true
+}
+
+//nolint:unused,deadcode
+func lookForHeight(conditions []query.Condition) (int64, bool, int) {
+	for i, c := range conditions {
+		if c.CompositeKey == types.BlockHeightKey && c.Op == query.OpEqual {
+			return c.Operand.(int64), true, i
+		}
+	}
+
+	return 0, false, -1
 }

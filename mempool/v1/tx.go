@@ -1,10 +1,11 @@
+// Deprecated: Priority mempool will be removed in the next major release.
 package v1
 
 import (
 	"sync"
 	"time"
 
-	"github.com/tendermint/tendermint/types"
+	"github.com/cometbft/cometbft/types"
 )
 
 // WrappedTx defines a wrapper around a raw transaction with additional metadata

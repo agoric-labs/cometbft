@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/tendermint/tendermint/crypto/merkle"
-	"github.com/tendermint/tendermint/libs/bits"
-	cmtbytes "github.com/tendermint/tendermint/libs/bytes"
-	cmtjson "github.com/tendermint/tendermint/libs/json"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtsync "github.com/tendermint/tendermint/libs/sync"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/cometbft/cometbft/crypto/merkle"
+	"github.com/cometbft/cometbft/libs/bits"
+	cmtbytes "github.com/cometbft/cometbft/libs/bytes"
+	cmtjson "github.com/cometbft/cometbft/libs/json"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 var (
@@ -22,12 +22,6 @@ var (
 	ErrPartInvalidSize        = errors.New("error inner part with invalid size")
 )
 
-type Part struct {
-	Index uint32            `json:"index"`
-	Bytes cmtbytes.HexBytes `json:"bytes"`
-	Proof merkle.Proof      `json:"proof"`
-}
-
 // ErrInvalidPart is an error type for invalid parts.
 type ErrInvalidPart struct {
 	Reason error
@@ -36,8 +30,15 @@ type ErrInvalidPart struct {
 func (e ErrInvalidPart) Error() string {
 	return fmt.Sprintf("invalid part: %v", e.Reason)
 }
+
 func (e ErrInvalidPart) Unwrap() error {
 	return e.Reason
+}
+
+type Part struct {
+	Index uint32            `json:"index"`
+	Bytes cmtbytes.HexBytes `json:"bytes"`
+	Proof merkle.Proof      `json:"proof"`
 }
 
 // ValidateBasic performs basic validation.
@@ -49,15 +50,12 @@ func (part *Part) ValidateBasic() error {
 	if int64(part.Index) < part.Proof.Total-1 && len(part.Bytes) != int(BlockPartSizeBytes) {
 		return ErrPartInvalidSize
 	}
-
 	if int64(part.Index) != part.Proof.Index {
 		return ErrInvalidPart{Reason: fmt.Errorf("part index %d != proof index %d", part.Index, part.Proof.Index)}
 	}
-
 	if err := part.Proof.ValidateBasic(); err != nil {
 		return ErrInvalidPart{Reason: fmt.Errorf("wrong Proof: %w", err)}
 	}
-
 	return nil
 }
 
@@ -287,6 +285,7 @@ func (ps *PartSet) Total() uint32 {
 	return ps.total
 }
 
+// CONTRACT: part is validated using ValidateBasic.
 func (ps *PartSet) AddPart(part *Part) (bool, error) {
 	if ps == nil {
 		return false, nil

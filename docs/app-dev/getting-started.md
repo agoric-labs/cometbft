@@ -23,7 +23,7 @@ using CometBFT.
 
 The first apps we will work with are written in Go. To install them, you
 need to [install Go](https://golang.org/doc/install), put
-`$GOPATH/bin` in your `$PATH` and enable go modules. If you use `bash`,
+`$GOPATH/bin` in your `$PATH` and enable go modules. If you use `bash`, 
 follow these instructions:
 
 ```bash
@@ -56,6 +56,8 @@ Available Commands:
   help             Help about any command
   info             get some info about the application
   kvstore          ABCI demo example
+  prepare_proposal prepare proposal
+  process_proposal process proposal
   query            query the application state
   test             run integration tests
   version          print ABCI console version

@@ -12,7 +12,7 @@ on:
   pull_request:
   push:
     branches:
-      - v0.34.x
+      - v0.37.x
 
 jobs:
   golangci:
@@ -30,11 +30,10 @@ jobs:
             **/**.go
             go.mod
             go.sum
+            .github/**
+            Makefile
       - uses: golangci/golangci-lint-action@v6
         with:
-          # Required: the version of golangci-lint is required and
-          # must be specified without patch version: we always use the
-          # latest patch version.
           version: latest
           args: --timeout 10m
           github-token: ${{ secrets.github_token }}

@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/crypto/ed25519"
-	cmtmath "github.com/tendermint/tendermint/libs/math"
-	cmtrand "github.com/tendermint/tendermint/libs/rand"
-	cmtproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/cometbft/cometbft/crypto"
+	"github.com/cometbft/cometbft/crypto/ed25519"
+	cmtmath "github.com/cometbft/cometbft/libs/math"
+	cmtrand "github.com/cometbft/cometbft/libs/rand"
+	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 func TestValidatorSetBasic(t *testing.T) {
@@ -168,7 +168,7 @@ func TestValidatorSet_ProposerPriorityHash(t *testing.T) {
 	vset = randValidatorSet(3)
 	assert.NotNil(t, vset.ProposerPriorityHash())
 
-	// Marshalling and unmarshalling do not affect ProposerPriorityHash
+	// Marshaling and unmarshalling do not affect ProposerPriorityHash
 	bz, err := vset.ToProto()
 	assert.NoError(t, err)
 	vsetProto, err := ValidatorSetFromProto(bz)

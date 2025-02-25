@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/cosmos/gogoproto/proto"
 
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/pubsub/query"
-	"github.com/tendermint/tendermint/types"
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/libs/pubsub/query"
+	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -120,8 +120,11 @@ func insertEvents(dbtx *sql.Tx, blockID, txID uint32, evts []abci.Event) error {
 			if !attr.Index {
 				continue
 			}
-			compositeKey := evt.Type + "." + string(attr.Key)
-			if _, err := dbtx.Exec(insertAttributeQuery, eid, attr.Key, compositeKey, attr.Value); err != nil {
+			compositeKey := evt.Type + "." + attr.Key
+			if _, err := dbtx.Exec(`
+INSERT INTO `+tableAttributes+` (event_id, key, composite_key, value)
+  VALUES ($1, $2, $3, $4);
+`, eid, attr.Key, compositeKey, attr.Value); err != nil {
 				return err
 			}
 		}
@@ -139,7 +142,7 @@ func makeIndexedEvent(compositeKey, value string) abci.Event {
 		return abci.Event{Type: compositeKey}
 	}
 	return abci.Event{Type: compositeKey[:i], Attributes: []abci.EventAttribute{
-		{Key: []byte(compositeKey[i+1:]), Value: []byte(value), Index: true},
+		{Key: compositeKey[i+1:], Value: value, Index: true},
 	}}
 }
 
