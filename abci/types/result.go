@@ -102,14 +102,39 @@ func (r *ResponseCommit) UnmarshalJSON(b []byte) error {
 	return jsonpbUnmarshaller.Unmarshal(reader, r)
 }
 
-func (r *EventAttribute) MarshalJSON() ([]byte, error) {
-	s, err := jsonpbMarshaller.MarshalToString(r)
-	return []byte(s), err
+func (r EventAttribute) MarshalJSONPB(marshaler *jsonpb.Marshaler) ([]byte, error) {
+	return r.MarshalJSON()
+}
+
+func (r *EventAttribute) UnmarshalJSONPB(unmarshaler *jsonpb.Unmarshaler, b []byte) error {
+	return r.UnmarshalJSON(b)
+}
+
+// stringyEventAttribute [AGORIC] avoids base64 encoding of the key and value
+// fields in the EventAttribute struct. This is necessary because the
+// EventAttribute struct is declared with byte slices, but code in the wild just
+// cast to and from strings, without any use of base64.
+type stringyEventAttribute struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func (r EventAttribute) MarshalJSON() ([]byte, error) {
+	stringyAttr := stringyEventAttribute{
+		Key:   string(r.Key),
+		Value: string(r.Value),
+	}
+	return json.Marshal(stringyAttr)
 }
 
 func (r *EventAttribute) UnmarshalJSON(b []byte) error {
-	reader := bytes.NewBuffer(b)
-	return jsonpbUnmarshaller.Unmarshal(reader, r)
+	var stringyAttr stringyEventAttribute
+	if err := json.Unmarshal(b, &stringyAttr); err != nil {
+		return err
+	}
+	r.Key = []byte(stringyAttr.Key)
+	r.Value = []byte(stringyAttr.Value)
+	return nil
 }
 
 // Some compile time assertions to ensure we don't
@@ -122,6 +147,11 @@ type jsonRoundTripper interface {
 	json.Unmarshaler
 }
 
+type jsonpbRoundTripper interface {
+	jsonpb.JSONPBMarshaler
+	jsonpb.JSONPBUnmarshaler
+}
+
 var _ jsonRoundTripper = (*ResponseCommit)(nil)
 var _ jsonRoundTripper = (*ResponseQuery)(nil)
 var _ jsonRoundTripper = (*ResponseDeliverTx)(nil)
@@ -129,3 +159,5 @@ var _ jsonRoundTripper = (*ResponseCheckTx)(nil)
 var _ jsonRoundTripper = (*ResponseSetOption)(nil)
 
 var _ jsonRoundTripper = (*EventAttribute)(nil)
+var _ jsonpbRoundTripper = (*EventAttribute)(nil)
+var _ jsonpb.JSONPBMarshaler = EventAttribute{}
