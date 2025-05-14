@@ -7,7 +7,7 @@ name: Check generated code
 on:
   pull_request:
     branches:
-      - v0.37.x
+      - v0.38.x
 
 permissions:
   contents: read
@@ -35,6 +35,7 @@ jobs:
             echo ">> Generated mocks and/or metrics require update (either Mockery or source files may have changed)."
             echo ">> Ensure your tools are up-to-date, re-run 'make mockery metrics' and update this PR."
             echo ">>"
+            git diff
             exit 1
           fi
 

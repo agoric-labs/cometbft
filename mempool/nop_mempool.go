@@ -21,7 +21,7 @@ var errNotAllowed = errors.New("not allowed with `nop` mempool")
 var _ Mempool = &NopMempool{}
 
 // CheckTx always returns an error.
-func (*NopMempool) CheckTx(types.Tx, func(*abci.Response), TxInfo) error {
+func (*NopMempool) CheckTx(types.Tx, func(*abci.ResponseCheckTx), TxInfo) error {
 	return errNotAllowed
 }
 
@@ -44,7 +44,7 @@ func (*NopMempool) Unlock() {}
 func (*NopMempool) Update(
 	int64,
 	types.Txs,
-	[]*abci.ResponseDeliverTx,
+	[]*abci.ExecTxResult,
 	PreCheckFunc,
 	PostCheckFunc,
 ) error {
@@ -88,9 +88,6 @@ func NewNopMempoolReactor() *NopMempoolReactor {
 
 var _ p2p.Reactor = &NopMempoolReactor{}
 
-// WaitSync always returns false.
-func (*NopMempoolReactor) WaitSync() bool { return false }
-
 // GetChannels always returns nil.
 func (*NopMempoolReactor) GetChannels() []*p2p.ChannelDescriptor { return nil }
 
@@ -104,7 +101,7 @@ func (*NopMempoolReactor) InitPeer(p2p.Peer) p2p.Peer { return nil }
 func (*NopMempoolReactor) RemovePeer(p2p.Peer, interface{}) {}
 
 // Receive does nothing.
-func (*NopMempoolReactor) ReceiveEnvelope(p2p.Envelope) {}
+func (*NopMempoolReactor) Receive(p2p.Envelope) {}
 
 // SetSwitch does nothing.
 func (*NopMempoolReactor) SetSwitch(*p2p.Switch) {}

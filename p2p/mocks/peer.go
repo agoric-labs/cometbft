@@ -290,12 +290,12 @@ func (_m *Peer) Reset() error {
 	return r0
 }
 
-// SendEnvelope provides a mock function with given fields: _a0
-func (_m *Peer) SendEnvelope(_a0 p2p.Envelope) bool {
+// Send provides a mock function with given fields: _a0
+func (_m *Peer) Send(_a0 p2p.Envelope) bool {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SendEnvelope")
+		panic("no return value specified for Send")
 	}
 
 	var r0 bool
@@ -415,12 +415,12 @@ func (_m *Peer) String() string {
 	return r0
 }
 
-// TrySendEnvelope provides a mock function with given fields: _a0
-func (_m *Peer) TrySendEnvelope(_a0 p2p.Envelope) bool {
+// TrySend provides a mock function with given fields: _a0
+func (_m *Peer) TrySend(_a0 p2p.Envelope) bool {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
-		panic("no return value specified for TrySendEnvelope")
+		panic("no return value specified for TrySend")
 	}
 
 	var r0 bool

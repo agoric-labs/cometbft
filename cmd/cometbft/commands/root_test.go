@@ -65,7 +65,7 @@ func TestRootHome(t *testing.T) {
 	}{
 		{nil, nil, root},
 		{[]string{"--home", newRoot}, nil, newRoot},
-		{nil, map[string]string{"TMHOME": newRoot}, newRoot}, //XXX: Deprecated.
+		{nil, map[string]string{"TMHOME": newRoot}, newRoot}, // XXX: Deprecated.
 		{nil, map[string]string{"CMTHOME": newRoot}, newRoot},
 	}
 
@@ -83,7 +83,6 @@ func TestRootHome(t *testing.T) {
 }
 
 func TestRootFlagsEnv(t *testing.T) {
-
 	// defaults
 	defaults := cfg.DefaultConfig()
 	defaultLogLvl := defaults.LogLevel
@@ -116,7 +115,6 @@ func TestRootFlagsEnv(t *testing.T) {
 }
 
 func TestRootConfig(t *testing.T) {
-
 	// write non-default config
 	nonDefaultLogLvl := "abc:debug"
 	cvals := map[string]string{
@@ -170,5 +168,5 @@ func WriteConfigVals(dir string, vals map[string]string) error {
 		data += fmt.Sprintf("%s = \"%s\"\n", k, v)
 	}
 	cfile := filepath.Join(dir, "config.toml")
-	return os.WriteFile(cfile, []byte(data), 0600)
+	return os.WriteFile(cfile, []byte(data), 0o600)
 }

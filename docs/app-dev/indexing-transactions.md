@@ -1,14 +1,14 @@
 ---
-order: 6
+order: 5
 ---
 
 # Indexing Transactions
 
 CometBFT allows you to index transactions and blocks and later query or
-subscribe to their results. Transactions are indexed by `TxResult.Events` and
-blocks are indexed by `Response(Begin|End)Block.Events`. However, transactions
+subscribe to their results. Transactions are indexed by `ResponseFinalizeBlock.tx_results.events` and
+blocks are indexed by `ResponseFinalizeBlock.events`. However, transactions
 are also indexed by a primary key which includes the transaction hash and maps
-to and stores the corresponding `TxResult`. Blocks are indexed by a primary key
+to and stores the corresponding transaction results. Blocks are indexed by a primary key
 which includes the block height and maps to and stores the block height, i.e.
 the block itself is never stored.
 
@@ -76,7 +76,7 @@ with
 - event type,
 - attribute key,
 - attribute value,
-- event generator (e.g. `EndBlock` and `BeginBlock`)
+- event generator (e.g. `FinalizeBlock`)
 - the height, and
 - event counter.
  For example the following events:
@@ -89,7 +89,7 @@ Type: "transfer",
    {Key: "balance", Value: "100", Index: true},
    {Key: "note", Value: "nothing", Index: true},
    },
- 
+
 ```
 
 ```
@@ -102,21 +102,21 @@ Type: "transfer",
    },
 ```
 
-will be represented as follows in the store, assuming these events result from the EndBlock call for height 1:
+will be represented as follows in the store, assuming these events result from the `FinalizeBlock` call for height 1:
 
 ```
 Key                                 value
 ---- event1 ------
-transferSenderBobEndBlock11           1
-transferRecipientAliceEndBlock11     1
-transferBalance100EndBlock11         1
-transferNodeNothingEndblock11        1
+transferSenderBobFinalizeBlock11           1
+transferRecipientAliceFinalizeBlock11      1
+transferBalance100FinalizeBlock11          1
+transferNodeNothingFinalizeBlock11         1
 ---- event2 ------
-transferSenderTomEndBlock12          1
-transferRecepientAliceEndBlock12     1
-transferBalance200EndBlock12         1
-transferNodeNothingEndblock12        1
- 
+transferSenderTomFinalizeBlock12           1
+transferRecepientAliceFinalizeBlock12      1
+transferBalance200FinalizeBlock12          1
+transferNodeNothingFinalizeBlock12         1
+
 ```
 
 The event number is a local variable kept by the indexer and incremented when a new event is processed.
@@ -166,27 +166,58 @@ The following indexes are indexed by default:
 
 Applications are free to define which events to index. CometBFT does not
 expose functionality to define which events to index and which to ignore. In
-your application's `DeliverTx` method, add the `Events` field with pairs of
+your application's `FinalizeBlock` method, add the `Events` field with pairs of
 UTF-8 encoded strings (e.g. "transfer.sender": "Bob", "transfer.recipient":
 "Alice", "transfer.balance": "100").
 
 Example:
 
 ```go
-func (app *KVStoreApplication) DeliverTx(req types.RequestDeliverTx) types.Result {
+func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
+
     //...
-    events := []abci.Event{
-        {
-            Type: "transfer",
-            Attributes: []abci.EventAttribute{
-                {Key: "sender ", Value: "Bob ", Index: true},
-                {Key: "recipient ", Value: "Alice ", Index: true},
-                {Key: "balance ", Value: "100 ", Index: true},
-                {Key: "note ", Value: "nothing ", Index: true},
-            },
-        },
-    }
-    return types.ResponseDeliverTx{Code: code.CodeTypeOK, Events: events}
+  tx_results[0] := &types.ExecTxResult{
+			Code: CodeTypeOK,
+			// With every transaction we can emit a series of events. To make it simple, we just emit the same events.
+			Events: []types.Event{
+				{
+					Type: "app",
+					Attributes: []types.EventAttribute{
+						{Key: "creator", Value: "Cosmoshi Netowoko", Index: true},
+						{Key: "key", Value: key, Index: true},
+						{Key: "index_key", Value: "index is working", Index: true},
+						{Key: "noindex_key", Value: "index is working", Index: false},
+					},
+				},
+				{
+					Type: "app",
+					Attributes: []types.EventAttribute{
+						{Key: "creator", Value: "Cosmoshi", Index: true},
+						{Key: "key", Value: value, Index: true},
+						{Key: "index_key", Value: "index is working", Index: true},
+						{Key: "noindex_key", Value: "index is working", Index: false},
+					},
+				},
+			},
+		}
+
+    block_events = []types.Event{
+			{
+				Type: "loan",
+				Attributes: []types.EventAttribute{
+					{	Key:   "account_no", Value: "1", Index: true},
+					{ Key:   "amount", Value: "200", Index: true },
+				},
+			},
+			{
+				Type: "loan",
+				Attributes: []types.EventAttribute{
+					{ Key:   "account_no", Value: "2",	Index: true },
+					{ Key:   "amount", Value: "300", Index: true},
+				},
+			},
+		}
+    return &types.ResponseFinalizeBlock{TxResults: tx_results, Events: block_events}
 }
 ```
 
@@ -203,7 +234,7 @@ You can query for a paginated set of transaction by their events by calling the
 curl "localhost:26657/tx_search?query=\"message.sender='cosmos1...'\"&prove=true"
 ```
 
-Check out [API docs](https://docs.cometbft.com/v0.37/rpc/#/Info/tx_search)
+Check out [API docs](https://docs.cometbft.com/v0.38/rpc/#/Info/tx_search)
 for more information on query syntax and other options.
 
 ## Subscribing to Transactions
@@ -222,7 +253,7 @@ a query to `/subscribe` RPC endpoint.
 }
 ```
 
-Check out [API docs](https://docs.cometbft.com/v0.37/rpc/#subscribe) for more information
+Check out [API docs](https://docs.cometbft.com/v0.38/rpc/#subscribe) for more information
 on query syntax and other options.
 
 ## Querying Block Events
@@ -235,22 +266,40 @@ curl "localhost:26657/block_search?query=\"block.height > 10\""
 ```
 
 
-Storing the event sequence was introduced in CometBFT 0.34.26. Before that, up until Tendermint Core 0.34.26,
-the event sequence was not stored in the kvstore and events were stored only by height. That means that queries
-returned blocks and transactions whose event attributes match within the height but can match across different
-events on that height.
-This behavior was fixed with CometBFT 0.34.26+. However, if the data was indexed with earlier versions of
-Tendermint Core and not re-indexed, that data will be queried as if all the attributes within a height
-occurred within the same event.
+Storing the event sequence was introduced in CometBFT 0.34.26. Before that, up
+until Tendermint Core 0.34.26, the event sequence was not stored in the kvstore
+and events were stored only by height. That means that queries returned blocks
+and transactions whose event attributes match within the height but can match
+across different events on that height.
 
-# Event attribute value types
+This behavior was fixed with CometBFT 0.34.26+. However, if the data was
+indexed with earlier versions of Tendermint Core and not re-indexed, that data
+will be queried as if all the attributes within a height occurred within the
+same event.
 
-Users can use anything as an event value. However, if the even attrbute value is a number, the following restrictions apply:
+## Event attribute value types
 
-- Negative numbers will not be properly retrieved when querying the indexer
-- When querying the events using `tx_search` and `block_search`, the value given as part of the condition cannot be a float.
-- Any event value retrieved from the database will be represented as a `BigInt` (from `math/big`)
-- Floating point values are not read from the database even with the introduction of `BigInt`. This was intentionally done
-to keep the same beheaviour as was historically present and not introduce breaking  changes. This will be fixed in the 0.38 series.
+Users can use anything as an event value. However, if the event attribute value
+is a number, the following needs to be taken into account:
 
-[abci-events]: https://github.com/cometbft/cometbft/blob/v0.37.x/spec/abci/abci++_basic_concepts.md#events
+- Negative numbers will not be properly retrieved when querying the indexer.
+- Event values are converted to big floats (from the `big/math` package). The
+  precision of the floating point number is set to the bit length of the
+  integer it is supposed to represent, so that there is no loss of information
+  due to insufficient precision. This was not present before CometBFT v0.38.x
+  and all float values were ignored.
+- As of CometBFT v0.38.x, queries can contain floating point numbers as well.
+- Note that comparing to floats can be imprecise with a high number of decimals.
+
+## Event type and attribute key format
+
+An event type/attribute key is a string that can contain any Unicode letter or
+digit, as well as the following characters: `.` (dot), `-` (dash), `_`
+(underscore). The event type/attribute key must not start with `-` (dash) or
+`.` (dot).
+
+```
+^[\w]+[\.-\w]?$
+```
+
+[abci-events]: ../spec/abci/abci++_basic_concepts.md#events

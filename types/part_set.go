@@ -167,6 +167,12 @@ func PartSetHeaderFromProto(ppsh *cmtproto.PartSetHeader) (*PartSetHeader, error
 	return psh, psh.ValidateBasic()
 }
 
+// ProtoPartSetHeaderIsZero is similar to the IsZero function for
+// PartSetHeader, but for the Protobuf representation.
+func ProtoPartSetHeaderIsZero(ppsh *cmtproto.PartSetHeader) bool {
+	return ppsh.Total == 0 && len(ppsh.Hash) == 0
+}
+
 //-------------------------------------
 
 type PartSet struct {
@@ -287,9 +293,12 @@ func (ps *PartSet) Total() uint32 {
 
 // CONTRACT: part is validated using ValidateBasic.
 func (ps *PartSet) AddPart(part *Part) (bool, error) {
+	// TODO: remove this? would be preferable if this only returned (false, nil)
+	// when its a duplicate block part
 	if ps == nil {
 		return false, nil
 	}
+
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
 

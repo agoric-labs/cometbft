@@ -12,6 +12,7 @@ import (
 
 	dbm "github.com/cometbft/cometbft-db"
 
+	"github.com/cometbft/cometbft/internal/test"
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/light"
 	"github.com/cometbft/cometbft/light/provider"
@@ -21,7 +22,7 @@ import (
 )
 
 const (
-	chainID = "test"
+	chainID = test.DefaultTestChainID
 )
 
 var (
