@@ -1,5 +1,8 @@
 # [AGORIC] Need this to download the "latest" Docker image of this minor version.
-DOCKER_LATEST_TAG := v0.37.x
+DOCKER_LATEST_TAG := v0.38.x
+COMETBFT_BUILD_OPTIONS += badgerdb,boltdb,cleveldb,rocksdb
+
+include ../../common.mk
 
 all: docker generator runner
 
@@ -15,7 +18,7 @@ docker:
 # order to build a binary with a CometBFT node in it (for built-in
 # ABCI testing).
 node:
-	go build -o build/node -tags badgerdb,boltdb,cleveldb,rocksdb ./node
+	go build -race $(BUILD_FLAGS) -tags '$(BUILD_TAGS)' -o build/node ./node
 
 generator:
 	go build -o build/generator ./generator

@@ -13,4 +13,7 @@ exactly is stored in these blocks?
 
 The [specification](https://github.com/cometbft/cometbft/blob/v0.34.x/spec/core/data_structures.md) contains a detailed description of each component - that's the best place to get started.
 
-To dig deeper, check out the [types package documentation](https://godoc.org/github.com/cometbft/cometbft/types).
+To dig deeper, check out the [types package documentation][types].
+
+[data_structures]: https://github.com/cometbft/cometbft/blob/v0.38.x/spec/core/data_structures.md
+[types]: https://pkg.go.dev/github.com/cometbft/cometbft/types
