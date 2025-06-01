@@ -4,7 +4,6 @@ import (
 	dbm "github.com/cometbft/cometbft-db"
 
 	abci "github.com/cometbft/cometbft/abci/types"
-	cmtstate "github.com/cometbft/cometbft/proto/tendermint/state"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -27,10 +26,10 @@ func UpdateState(
 	state State,
 	blockID types.BlockID,
 	header *types.Header,
-	abciResponses *cmtstate.ABCIResponses,
+	resp *abci.ResponseFinalizeBlock,
 	validatorUpdates []*types.Validator,
 ) (State, error) {
-	return updateState(state, blockID, header, abciResponses, validatorUpdates)
+	return updateState(state, blockID, header, resp, validatorUpdates)
 }
 
 // ValidateValidatorUpdates is an alias for validateValidatorUpdates exported
@@ -43,7 +42,16 @@ func ValidateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params types.V
 // store.go, exported exclusively and explicitly for testing.
 func SaveValidatorsInfo(db dbm.DB, height, lastHeightChanged int64, valSet *types.ValidatorSet) error {
 	stateStore := dbStore{db, StoreOptions{DiscardABCIResponses: false}}
-	return stateStore.saveValidatorsInfo(height, lastHeightChanged, valSet)
+	batch := stateStore.db.NewBatch()
+	err := stateStore.saveValidatorsInfo(height, lastHeightChanged, valSet, batch)
+	if err != nil {
+		return err
+	}
+	err = batch.WriteSync()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func Int64ToBytes(val int64) []byte {

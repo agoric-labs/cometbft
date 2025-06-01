@@ -109,5 +109,5 @@ func writeStateJSONToFile(state interface{}, dir, filename string) error {
 		return fmt.Errorf("failed to encode state dump: %w", err)
 	}
 
-	return os.WriteFile(path.Join(dir, filename), stateJSON, 0600)
+	return os.WriteFile(path.Join(dir, filename), stateJSON, 0o600)
 }
