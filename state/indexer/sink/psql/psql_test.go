@@ -39,7 +39,8 @@ var (
 const (
 	user     = "postgres"
 	password = "secret"
-	port     = "5432"
+	extPort  = "5433" // Postgres default port is 5432, but we use 5433 to avoid conflicts
+	intPort  = "5432" // The port inside the container
 	dsn      = "postgres://%s:%s@localhost:%s/%s?sslmode=disable"
 	dbName   = "postgres"
 	chainID  = "test-chainID"
@@ -64,9 +65,8 @@ func TestMain(m *testing.M) {
 			"POSTGRES_USER=" + user,
 			"POSTGRES_PASSWORD=" + password,
 			"POSTGRES_DB=" + dbName,
-			"listen_addresses = '*'",
 		},
-		ExposedPorts: []string{port},
+		ExposedPorts: []string{extPort + ":" + intPort},
 	}, func(config *docker.HostConfig) {
 		// set AutoRemove to true so that stopped container goes away by itself
 		config.AutoRemove = true
@@ -88,9 +88,10 @@ func TestMain(m *testing.M) {
 
 	// Connect to the database, clear any leftover data, and install the
 	// indexing schema.
-	conn := fmt.Sprintf(dsn, user, password, resource.GetPort(port+"/tcp"), dbName)
+	conn := fmt.Sprintf(dsn, user, password, resource.GetPort(intPort+"/tcp"), dbName)
 	var db *sql.DB
 
+	log.Printf("Connecting to database at %s", conn)
 	if err := pool.Retry(func() error {
 		sink, err := NewEventSink(conn, chainID)
 		if err != nil {
