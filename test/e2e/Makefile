@@ -1,5 +1,5 @@
 # [AGORIC] Need this to download the "latest" Docker image of this minor version.
-DOCKER_LATEST_TAG := v0.38.16
+DOCKER_LATEST_TAG := v0.38.x
 COMETBFT_BUILD_OPTIONS += badgerdb,boltdb,cleveldb,rocksdb
 
 include ../../common.mk
