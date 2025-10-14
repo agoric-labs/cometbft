@@ -34,6 +34,18 @@ Ref: https://keepachangelog.com/en/1.0.0/
 
 # Changelog
 
+## [v0.38.17-alpha.agoric.1.1]
+
+*October 14, 2025*
+
+This release fixes security issue ([ASA-2025-003](https://github.com/cometbft/cometbft/security/advisories/GHSA-hrhf-2vcr-ghch)).
+Users are encouraged to upgrade as soon as possible.
+
+### BUG-FIXES
+
+- `[bits]` Validate BitArray mismatched Bits and Elems length
+  ([ASA-2025-003](https://github.com/cometbft/cometbft/security/advisories/GHSA-hrhf-2vcr-ghch))
+
 ## [v0.37.15-alpha.agoric.1]
 
 * Merge `cometbft/cometbft v0.37.15`.
