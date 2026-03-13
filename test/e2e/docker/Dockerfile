@@ -1,7 +1,11 @@
 # Multi-stage build Dockerfile for CometBFT end-to-end testing
-# Stage 1: Build environment - compiles the application and test node
-FROM cometbft/cometbft-db-testing:v0.14.2 AS build
+FROM golang:1.23-bookworm AS golang
 
+# Stage 1: Build environment - compiles the application and test node
+FROM cometbft/cometbft-db-testing:v0.14.3 AS build
+
+RUN rm -rf /usr/local/go
+COPY --from=golang /usr/local/go /usr/local/go
 WORKDIR /src/cometbft
 
 # Copy Go module files and download dependencies

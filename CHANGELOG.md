@@ -4,6 +4,8 @@
 
 ### DEPENDENCIES
 
+- `[go/runtime]` Bump minimum Go version to 1.23.5
+
 ### BUG FIXES
 
 ### IMPROVEMENTS
