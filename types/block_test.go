@@ -6,6 +6,7 @@ import (
 
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"os"
 	"reflect"
@@ -82,8 +83,8 @@ func TestBlockValidateBasic(t *testing.T) {
 		}, true},
 		{"Remove LastCommitHash", func(blk *Block) { blk.LastCommitHash = []byte("something else") }, true},
 		{"Tampered Data", func(blk *Block) {
-			blk.Data.Txs[0] = Tx("something else")
-			blk.Data.hash = nil // clear hash or change wont be noticed
+			blk.Txs[0] = Tx("something else")
+			blk.hash = nil // clear hash or change wont be noticed
 		}, true},
 		{"Tampered DataHash", func(blk *Block) {
 			blk.DataHash = cmtrand.Bytes(len(blk.DataHash))
@@ -190,8 +191,12 @@ func makeBlockIDRandom() BlockID {
 		blockHash   = make([]byte, tmhash.Size)
 		partSetHash = make([]byte, tmhash.Size)
 	)
-	rand.Read(blockHash)   //nolint: errcheck // ignore errcheck for read
-	rand.Read(partSetHash) //nolint: errcheck // ignore errcheck for read
+	if i, err := rand.Read(blockHash); i != len(blockHash) || err != nil {
+		panic(fmt.Errorf("failed to read random bytes for block hash: %w", err))
+	}
+	if i, err := rand.Read(partSetHash); i != len(partSetHash) || err != nil {
+		panic(fmt.Errorf("failed to read random bytes for part set hash: %w", err))
+	}
 	return BlockID{blockHash, PartSetHeader{123, partSetHash}}
 }
 

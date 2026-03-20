@@ -10,7 +10,7 @@ import (
 )
 
 // DefaultDirPerm is the default permissions used when creating directories.
-const DefaultDirPerm = 0o700
+const DefaultDirPerm = 0700
 
 var configTemplate *template.Template
 
@@ -455,6 +455,9 @@ chunk_request_timeout = "{{ .StateSync.ChunkRequestTimeout }}"
 
 # The number of concurrent chunk fetchers to run (default: 1).
 chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
+
+# Maximum number of chunks allowed in a snapshot (default: 100000).
+max_snapshot_chunks = {{ .StateSync.MaxSnapshotChunks }}
 
 #######################################################
 ###       Block Sync Configuration Options          ###

@@ -29,6 +29,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal("/foo/bar", cfg.GenesisFile())
 	assert.Equal("/opt/data", cfg.DBDir())
 	assert.Equal("/foo/wal/mem", cfg.Mempool.WalDir())
+
 }
 
 func TestConfigValidateBasic(t *testing.T) {
@@ -150,7 +151,6 @@ func TestBlockSyncConfigValidateBasic(t *testing.T) {
 	assert.Error(t, cfg.ValidateBasic())
 }
 
-//nolint:lll
 func TestConsensusConfig_ValidateBasic(t *testing.T) {
 	//nolint: lll
 	testcases := map[string]struct {
@@ -177,7 +177,6 @@ func TestConsensusConfig_ValidateBasic(t *testing.T) {
 		"PeerQueryMaj23SleepDuration negative": {func(c *config.ConsensusConfig) { c.PeerQueryMaj23SleepDuration = -1 }, true},
 		"DoubleSignCheckHeight negative":       {func(c *config.ConsensusConfig) { c.DoubleSignCheckHeight = -1 }, true},
 	}
-
 	for desc, tc := range testcases {
 		tc := tc // appease linter
 		t.Run(desc, func(t *testing.T) {

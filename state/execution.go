@@ -125,7 +125,10 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxReapBytes, maxGas)
 	commit := lastExtCommit.ToCommit()
-	block := state.MakeBlock(height, txs, commit, evidence, proposerAddr)
+	block, err := state.MakeBlock(height, txs, commit, evidence, proposerAddr)
+	if err != nil {
+		return nil, err
+	}
 	rpp, err := blockExec.proxyApp.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
@@ -156,7 +159,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		return nil, err
 	}
 
-	return state.MakeBlock(height, txl, commit, evidence, proposerAddr), nil
+	return state.MakeBlock(height, txl, commit, evidence, proposerAddr)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -165,9 +168,9 @@ func (blockExec *BlockExecutor) ProcessProposal(
 ) (bool, error) {
 	resp, err := blockExec.proxyApp.ProcessProposal(context.TODO(), &abci.RequestProcessProposal{
 		Hash:               block.Header.Hash(),
-		Height:             block.Header.Height,
-		Time:               block.Header.Time,
-		Txs:                block.Data.Txs.ToSliceOfBytes(),
+		Height:             block.Height,
+		Time:               block.Time,
+		Txs:                block.Txs.ToSliceOfBytes(),
 		ProposedLastCommit: buildLastCommitInfoFromStore(block, blockExec.store, state.InitialHeight),
 		Misbehavior:        block.Evidence.Evidence.ToABCI(),
 		ProposerAddress:    block.ProposerAddress,
@@ -247,8 +250,8 @@ func (blockExec *BlockExecutor) applyBlock(state State, blockID types.BlockID, b
 	)
 
 	// Assert that the application correctly returned tx results for each of the transactions provided in the block
-	if len(block.Data.Txs) != len(abciResponse.TxResults) {
-		return state, fmt.Errorf("expected tx results length to match size of transactions in block. Expected %d, got %d", len(block.Data.Txs), len(abciResponse.TxResults))
+	if len(block.Txs) != len(abciResponse.TxResults) {
+		return state, fmt.Errorf("expected tx results length to match size of transactions in block. Expected %d, got %d", len(block.Txs), len(abciResponse.TxResults))
 	}
 
 	blockExec.logger.Info("executed block", "height", block.Height, "app_hash", fmt.Sprintf("%X", abciResponse.AppHash))
@@ -704,7 +707,7 @@ func fireEvents(
 		}
 	}
 
-	for i, tx := range block.Data.Txs {
+	for i, tx := range block.Txs {
 		if err := eventBus.PublishEventTx(types.EventDataTx{TxResult: abci.TxResult{
 			Height: block.Height,
 			Index:  uint32(i),
@@ -753,8 +756,8 @@ func ExecCommitBlock(
 	}
 
 	// Assert that the application correctly returned tx results for each of the transactions provided in the block
-	if len(block.Data.Txs) != len(resp.TxResults) {
-		return nil, fmt.Errorf("expected tx results length to match size of transactions in block. Expected %d, got %d", len(block.Data.Txs), len(resp.TxResults))
+	if len(block.Txs) != len(resp.TxResults) {
+		return nil, fmt.Errorf("expected tx results length to match size of transactions in block. Expected %d, got %d", len(block.Txs), len(resp.TxResults))
 	}
 
 	logger.Info("executed block", "height", block.Height, "app_hash", fmt.Sprintf("%X", resp.AppHash))
